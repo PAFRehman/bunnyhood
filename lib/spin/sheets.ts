@@ -332,40 +332,44 @@ async function claimOutboxRowByKey(dedupeKey: string) {
 }
 
 async function recordDeliveryOutcomes(outcomes: SheetDeliveryOutcome[]) {
-  if (!outcomes.length) return;
-  const sql = getDb();
-  await sql`
-    with results as (
-      select *
-      from jsonb_to_recordset(${JSON.stringify(outcomes)}::jsonb)
-        as result(id bigint, revision integer, ok boolean, error text)
-    )
-    update spin_sheet_outbox outbox
-    set delivered_at = case when results.ok then now() else null end,
-        attempts = case when results.ok then outbox.attempts else outbox.attempts + 1 end,
-        next_attempt_at = case
-          when results.ok then outbox.next_attempt_at
-          else now() + (least(3600, power(2, least(outbox.attempts + 1, 10))) * interval '1 second')
-        end,
-        locked_until = null,
-        last_error = case when results.ok then null else results.error end,
-        updated_at = now()
-    from results
-    where outbox.id = results.id and outbox.revision = results.revision
-  `;
-}
+  if (!outcomes.length) return 0;
 
-async function recordDeliveryOutcomesSafely(outcomes: SheetDeliveryOutcome[]) {
-  try {
-    await recordDeliveryOutcomes(outcomes);
-    return true;
-  } catch (error) {
-    console.error(
-      "Google Sheets delivery status could not be saved.",
-      error instanceof Error ? error.message : "Unknown error",
-    );
-    return false;
-  }
+  return inTransaction(async (sql) => {
+    let delivered = 0;
+
+    for (const outcome of outcomes) {
+      if (outcome.ok) {
+        const updated = await sql<{ id: string }[]>`
+          update spin_sheet_outbox
+          set delivered_at = now(),
+              attempts = 0,
+              next_attempt_at = now(),
+              locked_until = null,
+              last_error = null,
+              updated_at = now()
+          where id = ${outcome.id}::bigint
+            and revision = ${outcome.revision}
+          returning id::text as id
+        `;
+
+        delivered += updated.length;
+      } else {
+        await sql`
+          update spin_sheet_outbox
+          set delivered_at = null,
+              attempts = attempts + 1,
+              next_attempt_at = now() + interval '30 seconds',
+              locked_until = null,
+              last_error = ${outcome.error ?? "DELIVERY_FAILED"},
+              updated_at = now()
+          where id = ${outcome.id}::bigint
+            and revision = ${outcome.revision}
+        `;
+      }
+    }
+
+    return delivered;
+  });
 }
 
 function transientSheetError(code: string) {
@@ -424,7 +428,10 @@ async function deliverSingleRow(
   } finally {
     clearTimeout(timeout);
   }
-  await recordDeliveryOutcomesSafely([outcome]);
+  const acknowledged = await recordDeliveryOutcomes([outcome]);
+  if (outcome.ok && acknowledged !== 1) {
+    return { delivered: 0, errors: ["ACK_NOT_SAVED"] };
+  }
   return outcome.ok
     ? { delivered: 1, errors: [] }
     : { delivered: 0, errors: [outcome.error ?? "DELIVERY_FAILED"] };
@@ -485,15 +492,18 @@ async function deliverRows(rows: OutboxRow[], endpoint: string, token: string): 
         error: item ? safeWebhookError(item.code) : "BATCH_RESULT_MISSING",
       };
     });
-    await recordDeliveryOutcomesSafely(outcomes);
+    const acknowledged = await recordDeliveryOutcomes(outcomes);
+    const successful = outcomes.filter((outcome) => outcome.ok).length;
+    const deliveryErrors = outcomes.flatMap((outcome) => outcome.error ? [outcome.error] : []);
+    if (acknowledged !== successful) deliveryErrors.push("ACK_NOT_SAVED");
     return {
-      delivered: outcomes.filter((outcome) => outcome.ok).length,
-      errors: [...new Set(outcomes.flatMap((outcome) => outcome.error ? [outcome.error] : []))],
+      delivered: acknowledged,
+      errors: [...new Set(deliveryErrors)],
     };
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") failureCode = "TIMEOUT";
     else if (failureCode === "DELIVERY_FAILED") failureCode = "NETWORK_ERROR";
-    await recordDeliveryOutcomesSafely(rows.map((row) => ({
+    await recordDeliveryOutcomes(rows.map((row) => ({
       id: row.id,
       revision: row.revision,
       ok: false,
@@ -548,4 +558,15 @@ export async function flushSheetOutboxForKey(dedupeKey: string) {
     errors,
     destinationReset,
   };
+}
+
+export async function getPendingSheetSyncCount() {
+  const sql = getDb();
+  const rows = await sql<{ pending: number }[]>`
+    select count(*)::int as pending
+    from spin_sheet_outbox
+    where delivered_at is null
+      and dedupe_key <> ${SHEET_DESTINATION_STATE_KEY}
+  `;
+  return Number(rows[0]?.pending ?? 0);
 }

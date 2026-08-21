@@ -4,11 +4,21 @@ function jsonResponse_(payload) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+function workbook_() {
+  var spreadsheetId = String(
+    PropertiesService.getScriptProperties().getProperty("BUNNY_HOOD_SPREADSHEET_ID") || ""
+  ).trim();
+  if (!spreadsheetId) throw new Error("BUNNY_HOOD_SPREADSHEET_ID is missing");
+  return SpreadsheetApp.openById(spreadsheetId);
+}
+
 function doGet() {
-  return jsonResponse_({
-    ok: Boolean(SpreadsheetApp.getActiveSpreadsheet()),
-    service: "bunny-hood-spin-sheet-v1"
-  });
+  try {
+    workbook_();
+    return jsonResponse_({ ok: true, service: "bunny-hood-spin-sheet-v1" });
+  } catch (error) {
+    return jsonResponse_({ ok: false, code: "SPREADSHEET_NOT_CONFIGURED" });
+  }
 }
 
 function safeCell_(value) {
@@ -81,7 +91,7 @@ function normalizedWallet_(value) {
 }
 
 function sheetWithHeader_(name, header) {
-  var workbook = SpreadsheetApp.getActiveSpreadsheet();
+  var workbook = workbook_();
   var sheet = workbook.getSheetByName(name);
   if (!sheet) sheet = workbook.insertSheet(name);
   if (sheet.getLastRow() === 0) sheet.appendRow(header);
