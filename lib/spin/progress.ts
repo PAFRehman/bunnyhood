@@ -96,24 +96,33 @@ export async function markCodeReward(
 ) {
   const bit = codeProgressBit(roundNumber);
   const awardByRound = JSON.stringify({ [String(roundNumber)]: awardedSpins });
-  const rows = await sql<{ inserted: boolean }[]>`
+  const inserted = await sql<{ recorded: boolean }[]>`
     insert into spin_user_campaign_progress (
       user_id, campaign_id, code_redeemed_bits,
       code_redemptions, code_spins_earned, code_spin_awards
     ) values (
-      ${userId}::uuid, ${campaignId}::uuid, ${bit}::bigint, 1, ${awardedSpins},
+      ${userId}::uuid, ${campaignId}::uuid, ${bit}::bigint,
+      1, ${awardedSpins}::integer,
       ${awardByRound}::jsonb
     )
-    on conflict (user_id, campaign_id) do update set
-      code_redeemed_bits = spin_user_campaign_progress.code_redeemed_bits | excluded.code_redeemed_bits,
-      code_redemptions = spin_user_campaign_progress.code_redemptions + 1,
-      code_spins_earned = spin_user_campaign_progress.code_spins_earned + excluded.code_spins_earned,
-      code_spin_awards = spin_user_campaign_progress.code_spin_awards || excluded.code_spin_awards,
-      updated_at = now()
-    where (spin_user_campaign_progress.code_redeemed_bits & excluded.code_redeemed_bits) = 0
-    returning true as inserted
+    on conflict (user_id, campaign_id) do nothing
+    returning true as recorded
   `;
-  return Boolean(rows[0]?.inserted);
+  if (inserted[0]?.recorded) return true;
+
+  const updated = await sql<{ recorded: boolean }[]>`
+    update spin_user_campaign_progress
+    set code_redeemed_bits = code_redeemed_bits | ${bit}::bigint,
+      code_redemptions = code_redemptions + 1,
+      code_spins_earned = code_spins_earned + ${awardedSpins}::integer,
+      code_spin_awards = coalesce(code_spin_awards, '{}'::jsonb) || ${awardByRound}::jsonb,
+      updated_at = now()
+    where user_id = ${userId}::uuid
+      and campaign_id = ${campaignId}::uuid
+      and (code_redeemed_bits & ${bit}::bigint) = 0
+    returning true as recorded
+  `;
+  return Boolean(updated[0]?.recorded);
 }
 
 export async function getRoundProgress(
@@ -154,4 +163,3 @@ export async function getRoundProgress(
     ].filter(Boolean) as CompactTaskType[]),
     codeAwardedSpins: row?.code_redeemed ? Number(row.awarded_spins) : null,
   };
-}
