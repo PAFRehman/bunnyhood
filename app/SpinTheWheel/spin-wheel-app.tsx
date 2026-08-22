@@ -9,6 +9,7 @@ type SpinResult = PrizeType | "NONE" | "REFUND";
 
 type WheelState = {
   authenticated: boolean;
+  storageSafetyPaused: boolean;
   wheelAvailable: boolean;
   walletChangesAllowed: boolean;
   walletSubmissionsAllowed: boolean;
@@ -520,7 +521,15 @@ export function SpinWheelApp() {
 
       <section className="spin-console">
         {loading && <div className="spin-loading">Loading the Hood…</div>}
-        {!loading && !state?.authenticated && (
+        {!loading && state?.storageSafetyPaused && (
+          <section className="storage-safety-pause">
+            <span>HOOD DATA SAFETY PAUSE</span>
+            <h2>Next spin batch<br /><em>coming soon.</em></h2>
+            <p>The wheel, tasks, codes, referrals, X connections, and wallet actions are temporarily paused to protect every stored point, spin, referral, role, and wallet.</p>
+            <a href="https://x.com/BunnysHood" target="_blank" rel="noreferrer">Stay connected on X</a>
+          </section>
+        )}
+        {!loading && !state?.storageSafetyPaused && !state?.authenticated && (
           <div className="connect-panel">
             <div>
               <p className="section-kicker">ONE ACCOUNT · SAVED FOREVER</p>
@@ -532,7 +541,7 @@ export function SpinWheelApp() {
           </div>
         )}
 
-        {!loading && state?.authenticated && state.user && (
+        {!loading && !state?.storageSafetyPaused && state?.authenticated && state.user && (
           <>
             <div className="profile-bar">
               <div><span>CONNECTED AS</span><strong>@{state.user.xUsername}</strong></div>

@@ -10,6 +10,7 @@ import { enforceRateLimit } from "./rate-limit";
 import { ensureProductionSchema } from "./schema";
 import { hashRedeemCode, normalizeRedeemCode, safeEqual, sha256 } from "./security";
 import { getSpinSettings } from "./settings";
+import { getStorageSafetyState, type StorageSafetyState } from "./storage-safety";
 import { ensureReferralCode, type SpinUserRow } from "./users";
 
 export type PrizeType = "GTD" | "FCFS1" | "FCFS2";
@@ -550,22 +551,37 @@ export async function removeWinWallet(user: SpinUser, winId: string) {
   return changeWinWallet(user, winId, null);
 }
 
-export async function getWheelState(user: SpinUser | null) {
+export async function getWheelState(user: SpinUser | null, knownStorage?: StorageSafetyState) {
   await ensureProductionSchema();
-  if (user) await settleMaturedCampaignTasks(user);
   const sql = getDb();
-  const campaign = await getActiveCampaign(sql);
-  const prizeCampaign = await getLatestPrizeCampaign(sql);
-  const settings = await getSpinSettings(sql);
+  const storage = knownStorage ?? await getStorageSafetyState();
   const communityRows = await sql<{ connected_users: number }[]>`
     select coalesce(sum(connected_users), 0)::bigint as connected_users
     from spin_connected_user_counters
   `;
   const community = { connectedUsers: Number(communityRows[0]?.connected_users ?? 0) };
 
+  if (storage.paused) {
+    return {
+      authenticated: Boolean(user),
+      storageSafetyPaused: true,
+      campaign: null,
+      wheelAvailable: false,
+      walletChangesAllowed: false,
+      walletSubmissionsAllowed: false,
+      community,
+    };
+  }
+
+  if (user) await settleMaturedCampaignTasks(user);
+  const campaign = await getActiveCampaign(sql);
+  const prizeCampaign = await getLatestPrizeCampaign(sql);
+  const settings = await getSpinSettings(sql);
+
   if (!user) {
     return {
       authenticated: false,
+      storageSafetyPaused: false,
       campaign: publicCampaign(campaign),
       wheelAvailable: Boolean(prizeCampaign),
       walletChangesAllowed: settings.allowWalletChanges,
@@ -582,6 +598,7 @@ export async function getWheelState(user: SpinUser | null) {
   if (!current) {
     return {
       authenticated: false,
+      storageSafetyPaused: false,
       campaign: publicCampaign(campaign),
       wheelAvailable: Boolean(prizeCampaign),
       walletChangesAllowed: settings.allowWalletChanges,
@@ -617,6 +634,7 @@ export async function getWheelState(user: SpinUser | null) {
 
   return {
     authenticated: true,
+    storageSafetyPaused: false,
     user: {
       id: current.id,
       xUserId: current.x_user_id,

@@ -40,8 +40,22 @@ const adminData = readFileSync(join(root, "lib/spin/admin-data.ts"), "utf8");
 const maintenance = readFileSync(join(root, "lib/spin/maintenance.ts"), "utf8");
 const progress = readFileSync(join(root, "lib/spin/progress.ts"), "utf8");
 const excel = readFileSync(join(root, "lib/spin/excel.ts"), "utf8");
+const csv = readFileSync(join(root, "lib/spin/csv.ts"), "utf8");
+const storageSafety = readFileSync(join(root, "lib/spin/storage-safety.ts"), "utf8");
+const homepage = readFileSync(join(root, "app/page.tsx"), "utf8");
 const xIntegration = readFileSync(join(root, "lib/spin/x.ts"), "utf8");
 const xStart = readFileSync(join(root, "app/api/spin/auth/x/start/route.ts"), "utf8");
+const storageGatedRoutes = [
+  "app/api/spin/auth/x/start/route.ts",
+  "app/api/spin/auth/x/callback/route.ts",
+  "app/api/spin/play/route.ts",
+  "app/api/spin/redeem/route.ts",
+  "app/api/spin/referral/code/route.ts",
+  "app/api/spin/tasks/start/route.ts",
+  "app/api/spin/tasks/claim/route.ts",
+  "app/api/spin/wins/[winId]/wallet/route.ts",
+  "app/api/admin/spin/campaign/route.ts",
+].map((name) => ({ name, source: readFileSync(join(root, name), "utf8") }));
 const failures = [];
 
 if (/NEXT_PUBLIC_(?:X_|DATABASE|TOKEN_|CODE_|PRIZE_|RATE_|ADMIN_|CRON_|GOOGLE_)/.test(source)) {
@@ -95,8 +109,14 @@ if (!/metric_shard smallint/.test(migration) || !/spin_campaign_counters/.test(m
 if (!/insert into spin_daily_rollups/.test(wheel) || !/rollup_recorded/.test(wheel) || !/if \(winId\)/.test(wheel)) failures.push("Spin attempts are not written directly to compact permanent rollups.");
 if (!/spin_connected_user_counters/.test(migration) || !/from spin_connected_user_counters/.test(wheel)) failures.push("Connected-user reads still require a full public table count.");
 if (!/spin_wallet_registry/.test(migration) || !/spin_wallet_history/.test(migration) || !/walletHash/.test(wheel)) failures.push("Wallet anti-reuse history is missing.");
-if (!/Download complete Excel/.test(adminApp) || !/streamBunnyHoodWorkbook/.test(excel)) failures.push("Protected direct Excel export is missing.");
+if (!/Complete workbook · Excel/.test(adminApp) || !/createBunnyHoodWorkbookDownload/.test(excel)) failures.push("Protected direct Excel export is missing.");
 if (!/\.cursor\(CURSOR_ROWS\)/.test(excel)) failures.push("Large admin Excel exports are not cursor-streamed.");
+if (!/streamBunnyHoodCsv/.test(csv) || !/\\uFEFF/.test(csv) || !/Wins &amp; wallets · CSV/.test(adminApp)) failures.push("Mobile-friendly CSV export choices are missing.");
+if (!/490 \* 1024 \* 1024/.test(storageSafety) || !/STORAGE_SAFETY_PAUSE/.test(storageSafety) || !/storageSafetyPaused/.test(wheelApp)) failures.push("The automatic 490 MB public safety pause is missing.");
+for (const route of storageGatedRoutes) {
+  if (!/assertPublicStorageWritable/.test(route.source)) failures.push(`Storage safety is missing from ${route.name}.`);
+}
+if (/ONE HOOD[\s\S]{0,80}More utility\. More experiments\./.test(homepage) || !/roadmap-close"><strong>More, more and more soon\.<\/strong>/.test(homepage)) failures.push("The requested roadmap closing copy is not applied.");
 if (!/getAdminRecords/.test(adminData) || !/LIVE NEON RECORDS/.test(adminApp)) failures.push("The live admin data explorer is missing.");
 if (!/Lock wallet changes/.test(adminApp)) failures.push("Admin wallet-change permission is missing.");
 if (!/setWalletSubmissionsAllowed/.test(source) || !/Pause wallet submissions/.test(adminApp)) failures.push("Admin wallet-submission permission is missing.");

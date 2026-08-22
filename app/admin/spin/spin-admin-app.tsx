@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 type PrizeType = "GTD" | "FCFS1" | "FCFS2";
 type RecordView = "users" | "wins" | "referrals";
+type ExportFormat = "xlsx" | "users" | "wins" | "referrals" | "daily";
 
 type Dashboard = {
   campaign: null | {
@@ -33,6 +34,9 @@ type Dashboard = {
   settings: { allowWalletChanges: boolean; allowWalletSubmissions: boolean };
   storage: {
     databaseBytes: number;
+    safetyLimitBytes: number;
+    remainingBeforePause: number;
+    safetyPaused: boolean;
     rawEvents: number;
     recordedAttempts: number;
     rawRetentionHours: number;
@@ -158,6 +162,7 @@ export function SpinAdminApp() {
   const [recordPage, setRecordPage] = useState(1);
   const [searchInput, setSearchInput] = useState("");
   const [recordSearch, setRecordSearch] = useState("");
+  const [exportFormat, setExportFormat] = useState<ExportFormat>("wins");
   const [busy, setBusy] = useState(false);
   const [recordsBusy, setRecordsBusy] = useState(false);
   const [maintenanceBusy, setMaintenanceBusy] = useState(false);
@@ -338,6 +343,23 @@ export function SpinAdminApp() {
   }
 
   const pageCount = useMemo(() => Math.max(1, Math.ceil((records?.total ?? 0) / (records?.pageSize ?? 25))), [records]);
+  const exportHref = exportFormat === "xlsx"
+    ? "/api/admin/spin/export"
+    : `/api/admin/spin/export/csv?view=${exportFormat}`;
+  const exportLabel = exportFormat === "xlsx" ? "Download Excel" : "Download CSV";
+  const exportControls = (
+    <div className="admin-export-controls">
+      <label>Export format</label>
+      <select aria-label="Export format" value={exportFormat} onChange={(event) => setExportFormat(event.target.value as ExportFormat)}>
+        <option value="wins">Wins &amp; wallets · CSV</option>
+        <option value="users">All users · CSV</option>
+        <option value="referrals">Referrals · CSV</option>
+        <option value="daily">Daily activity · CSV</option>
+        <option value="xlsx">Complete workbook · Excel</option>
+      </select>
+      <a className="admin-export-button" href={exportHref}>{exportLabel}</a>
+    </div>
+  );
 
   if (needsLogin) {
     return (
@@ -361,11 +383,13 @@ export function SpinAdminApp() {
     <main className="spin-admin-page"><div className="spin-admin-shell">
       <div className="spin-admin-brand"><strong>BUNNY HOOD · DATA ADMIN</strong><div><span className="admin-live"><i /> LIVE · 5S</span><a href="/SpinTheWheel">Open wheel</a><button onClick={logout} type="button">Sign out</button></div></div>
       <section className="admin-dashboard">
-        <header><div><p className="section-kicker">PRIVATE CONTROL ROOM</p><h1>Run the Hood.<br /><em>Know the data.</em></h1></div><div className="admin-header-actions"><span>Last refresh · {new Date(dashboard.generatedAt).toLocaleTimeString()}</span><a className="admin-export-button" href="/api/admin/spin/export">Download Excel</a></div></header>
+        <header><div><p className="section-kicker">PRIVATE CONTROL ROOM</p><h1>Run the Hood.<br /><em>Know the data.</em></h1></div><div className="admin-header-actions"><span>Last refresh · {new Date(dashboard.generatedAt).toLocaleTimeString()}</span>{exportControls}</div></header>
 
         <div className="admin-stats admin-stats-expanded">
           <div><span>UNIQUE X USERS</span><strong>{formatNumber(dashboard.totals.users)}</strong></div><div><span>ACTIVE · 24H</span><strong>{formatNumber(dashboard.totals.active24h)}</strong></div><div><span>SPINS EARNED</span><strong>{formatNumber(dashboard.totals.spinsEarned)}</strong></div><div><span>SPINS LEFT</span><strong>{formatNumber(dashboard.totals.spinsAvailable)}</strong></div><div><span>SPINS USED</span><strong>{formatNumber(dashboard.totals.spinsUsed)}</strong></div><div><span>POINTS</span><strong>{formatNumber(dashboard.totals.points)}</strong></div><div><span>TOTAL WINS</span><strong>{formatNumber(dashboard.totals.wins)}</strong></div><div><span>WAITING FOR WALLET</span><strong>{formatNumber(dashboard.totals.pendingWallets)}</strong></div><div><span>REFERRALS</span><strong>{formatNumber(dashboard.totals.referrals)}</strong></div>
         </div>
+
+        {dashboard.storage.safetyPaused && <div className="admin-storage-pause"><strong>PUBLIC MECHANICS PAUSED</strong><span>The database reached the 490 MB safety limit. Public writes are blocked while every permanent record remains available here. Export records, run cleanup, or increase Neon storage.</span></div>}
 
         <div className="admin-quick-controls">
           <section className="admin-panel"><p className="section-kicker">WALLET SUBMISSIONS</p><h2>{dashboard.settings.allowWalletSubmissions ? "Submissions open" : "Submissions paused"}</h2><p className="admin-note">Pause or reopen new wallet submissions without changing any permanent win.</p><button className="admin-secondary-button" type="button" disabled={settingsBusy !== null} onClick={toggleWalletSubmissions}>{settingsBusy === "submissions" ? "Updating…" : dashboard.settings.allowWalletSubmissions ? "Pause wallet submissions" : "Allow wallet submissions"}</button></section>
@@ -374,7 +398,7 @@ export function SpinAdminApp() {
         </div>
 
         <div className="admin-health-grid">
-          <section className="admin-panel admin-storage-card"><p className="section-kicker">DATABASE HEALTH</p><h2>{formatBytes(dashboard.storage.databaseBytes)}</h2><div className="admin-health-list"><div><span>Permanent attempt totals</span><strong>{formatNumber(dashboard.storage.recordedAttempts)}</strong></div><div><span>Last cleanup</span><strong>{formatDate(dashboard.storage.lastMaintenanceAt)}</strong></div><div><span>Technical rows removed</span><strong>{formatNumber(dashboard.storage.lastArchived)}</strong></div><div><span>Accounting integrity</span><strong className={integrityHealthy ? "healthy" : "warning"}>{integrityHealthy ? "VERIFIED" : "CHECK REQUIRED"}</strong></div></div></section>
+          <section className="admin-panel admin-storage-card"><p className="section-kicker">DATABASE HEALTH</p><h2>{formatBytes(dashboard.storage.databaseBytes)}</h2><div className="admin-health-list"><div><span>Automatic safety limit</span><strong>{formatBytes(dashboard.storage.safetyLimitBytes)}</strong></div><div><span>Space before public pause</span><strong className={dashboard.storage.safetyPaused ? "warning" : "healthy"}>{formatBytes(dashboard.storage.remainingBeforePause)}</strong></div><div><span>Permanent attempt totals</span><strong>{formatNumber(dashboard.storage.recordedAttempts)}</strong></div><div><span>Last cleanup</span><strong>{formatDate(dashboard.storage.lastMaintenanceAt)}</strong></div><div><span>Technical rows removed</span><strong>{formatNumber(dashboard.storage.lastArchived)}</strong></div><div><span>Accounting integrity</span><strong className={integrityHealthy ? "healthy" : "warning"}>{integrityHealthy ? "VERIFIED" : "CHECK REQUIRED"}</strong></div></div></section>
           <section className="admin-panel"><p className="section-kicker">PERMANENT ROLE LEDGER</p><h2>{formatNumber(dashboard.totals.wins)} wins stored</h2><div className="admin-role-ledger"><div><span>GTD</span><strong>{formatNumber(dashboard.totals.roleWins.GTD)}</strong></div><div><span>FCFS1</span><strong>{formatNumber(dashboard.totals.roleWins.FCFS1)}</strong></div><div><span>FCFS2</span><strong>{formatNumber(dashboard.totals.roleWins.FCFS2)}</strong></div></div><p className="admin-note">Role ownership is read from permanent win rows, not temporary wheel animation data.</p></section>
         </div>
 
@@ -390,7 +414,7 @@ export function SpinAdminApp() {
         <section className="admin-panel admin-activity-panel"><div className="admin-panel-heading"><div><p className="section-kicker">14-DAY VIEW</p><h2>Daily wheel activity</h2></div><span>UTC</span></div><div className="admin-table-wrap"><table className="admin-data-table compact"><thead><tr><th>Day</th><th>Attempts</th><th>Used</th><th>Returned</th><th>No prize</th><th>GTD</th><th>FCFS1</th><th>FCFS2</th></tr></thead><tbody>{dashboard.daily.map((day) => <tr key={day.day}><td>{day.day}</td><td>{formatNumber(day.attempts)}</td><td>{formatNumber(day.spinsConsumed)}</td><td>{formatNumber(day.spinsRefunded)}</td><td>{formatNumber(day.noPrize)}</td><td>{formatNumber(day.GTD)}</td><td>{formatNumber(day.FCFS1)}</td><td>{formatNumber(day.FCFS2)}</td></tr>)}</tbody></table></div></section>
 
         <section className="admin-panel admin-records-panel">
-          <div className="admin-records-heading"><div><p className="section-kicker">LIVE NEON RECORDS</p><h2>Search the Hood.</h2><p>Only campaign data is shown. X access tokens and private server secrets are never exposed or exported.</p></div><a className="admin-export-button" href="/api/admin/spin/export">Download complete Excel</a></div>
+          <div className="admin-records-heading"><div><p className="section-kicker">LIVE NEON RECORDS</p><h2>Search the Hood.</h2><p>Choose an individual CSV for easy viewing in Google Sheets, Excel, mobile, or desktop. The complete Excel workbook includes every table. X access tokens and private server secrets are never exported.</p></div>{exportControls}</div>
           <div className="admin-record-toolbar"><div className="admin-record-tabs">{(["users", "wins", "referrals"] as RecordView[]).map((view) => <button className={recordView === view ? "active" : ""} type="button" key={view} onClick={() => changeRecordView(view)}>{view}</button>)}</div><form onSubmit={searchRecords}><input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder={recordView === "wins" ? "Search username, wallet or role" : "Search username, X ID or code"} /><button type="submit">Search</button></form></div>
           <div className={`admin-table-wrap ${recordsBusy ? "loading" : ""}`}>
             {recordView === "users" && <table className="admin-data-table"><thead><tr><th>User</th><th>X ID</th><th>Points</th><th>Earned</th><th>Left</th><th>Used</th><th>Roles</th><th>Referrals</th><th>Last seen</th></tr></thead><tbody>{(records?.rows as UserRecord[] | undefined)?.map((user) => <tr key={user.id}><td><strong>@{user.xUsername}</strong><small>{user.xName}</small></td><td>{user.xUserId}</td><td>{formatNumber(user.points)}</td><td>{formatNumber(user.spinsEarned)}</td><td>{formatNumber(user.spinsAvailable)}</td><td>{formatNumber(user.spinsUsed)}</td><td>G {user.roleWins.GTD} · F1 {user.roleWins.FCFS1} · F2 {user.roleWins.FCFS2}</td><td>{formatNumber(user.referralCount)}<small>{user.referralCode || "—"}</small></td><td>{formatDate(user.lastSeenAt)}</td></tr>)}</tbody></table>}

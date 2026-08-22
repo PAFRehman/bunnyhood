@@ -1,4 +1,9 @@
-import { PassThrough, Readable } from "node:stream";
+import { randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { stat, unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Readable } from "node:stream";
 import ExcelJS from "exceljs";
 import { getAdminOverview } from "./admin-data";
 import { getDb } from "./db";
@@ -102,12 +107,12 @@ function addSummaryRow(sheet: ExcelJS.Worksheet, label: string, value: string | 
   row.commit();
 }
 
-async function writeBunnyHoodWorkbook(output: PassThrough) {
+async function writeBunnyHoodWorkbook(filename: string) {
   await ensureProductionSchema();
   const sql = getDb();
   const overview = await getAdminOverview();
   const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
-    stream: output,
+    filename,
     useSharedStrings: false,
     useStyles: true,
   });
@@ -318,12 +323,20 @@ async function writeBunnyHoodWorkbook(output: PassThrough) {
   await workbook.commit();
 }
 
-export function streamBunnyHoodWorkbook() {
-  const output = new PassThrough();
-  const body = Readable.toWeb(output) as ReadableStream<Uint8Array>;
-  const completed = writeBunnyHoodWorkbook(output).catch((error) => {
-    output.destroy(error instanceof Error ? error : new Error("Excel export failed."));
+export async function createBunnyHoodWorkbookDownload() {
+  const filename = join(tmpdir(), `bunnyhood-${randomUUID()}.xlsx`);
+  try {
+    await writeBunnyHoodWorkbook(filename);
+    const fileInfo = await stat(filename);
+    if (fileInfo.size < 100) throw new Error("The generated Excel workbook is incomplete.");
+    const source = createReadStream(filename);
+    source.once("close", () => void unlink(filename).catch(() => undefined));
+    return {
+      body: Readable.toWeb(source) as ReadableStream<Uint8Array>,
+      bytes: fileInfo.size,
+    };
+  } catch (error) {
+    await unlink(filename).catch(() => undefined);
     throw error;
-  });
-  return { body, completed };
+  }
 }

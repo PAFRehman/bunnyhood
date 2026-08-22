@@ -8,7 +8,7 @@
 4. Confirm every variable listed in `.env.example` exists for Production.
 5. Push to `main` and wait for the Vercel deployment to show **Ready**.
 6. Open `/SpinTheWheel`; the production schema upgrade runs automatically.
-7. Open `/admin/spin` to verify live totals and download an Excel snapshot.
+7. Open `/admin/spin` to verify live totals and download either the complete Excel workbook or a mobile-friendly CSV.
 
 ## First deployment
 
@@ -19,4 +19,5 @@ Import the repository at [vercel.com/new](https://vercel.com/new), keep the dete
 - First day: set the post, redeem code, expected users, and private GTD/FCFS inventory, then start a new 20-day campaign.
 - Later days: publish a daily update without selecting a new campaign. Daily task/code eligibility resets while balances and inventory remain.
 - Wallet submission and wallet-change permissions are separate controls.
-- Google Sheets is not required. The private records tables and cursor-streamed `.xlsx` export come directly from Neon.
+- Google Sheets is not required. The private `.xlsx` and CSV exports come directly from Neon; CSV can be imported into Google Sheets with no webhook.
+- The public experience automatically pauses writes at 490 MiB. If that happens, use the admin export, run safe cleanup, and increase Neon capacity before reopening automatically by dropping below the threshold.

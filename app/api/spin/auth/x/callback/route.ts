@@ -2,6 +2,7 @@ import { createSession } from "@/lib/spin/auth";
 import { getAppUrl, OAUTH_COOKIE } from "@/lib/spin/config";
 import { getCookie, secureCookie } from "@/lib/spin/http";
 import { safeEqual, unseal } from "@/lib/spin/security";
+import { assertPublicStorageWritable } from "@/lib/spin/storage-safety";
 import { exchangeAuthorizationCode, fetchXMe, upsertXUser } from "@/lib/spin/x";
 
 export const runtime = "nodejs";
@@ -16,6 +17,7 @@ function redirectWithError(code: string) {
 
 export async function GET(request: Request) {
   try {
+    await assertPublicStorageWritable();
     const url = new URL(request.url);
     if (url.searchParams.get("error")) return redirectWithError("x_denied");
     const code = url.searchParams.get("code") ?? "";

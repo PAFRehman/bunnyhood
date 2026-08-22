@@ -2,6 +2,7 @@ import { requireSpinAdmin } from "@/lib/spin/admin";
 import { recordAdminAction } from "@/lib/spin/audit";
 import { publishCampaign } from "@/lib/spin/campaigns";
 import { assertSameOrigin, json, readJson, routeError } from "@/lib/spin/http";
+import { assertPublicStorageWritable } from "@/lib/spin/storage-safety";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,6 +11,7 @@ export async function POST(request: Request) {
   try {
     assertSameOrigin(request);
     requireSpinAdmin(request);
+    await assertPublicStorageWritable();
     const body = await readJson<{
       title?: string;
       tweetUrl?: string;

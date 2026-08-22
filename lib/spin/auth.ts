@@ -52,7 +52,7 @@ function mapUser(row: SessionRow): SpinUser {
   };
 }
 
-export async function getSessionUser(request: Request, requireCsrf = false) {
+export async function getSessionUser(request: Request, requireCsrf = false, touchLastSeen = true) {
   await ensureProductionSchema();
   const token = getCookie(request, SPIN_COOKIE);
   if (!token) return null;
@@ -80,12 +80,14 @@ export async function getSessionUser(request: Request, requireCsrf = false) {
   const row = rows[0];
   if (!row) return null;
 
-  await sql`
-    update spin_users
-    set last_seen_at = now()
-    where id = ${row.user_id}::uuid
-      and last_seen_at < now() - interval '5 minutes'
-  `;
+  if (touchLastSeen) {
+    await sql`
+      update spin_users
+      set last_seen_at = now()
+      where id = ${row.user_id}::uuid
+        and last_seen_at < now() - interval '5 minutes'
+    `;
+  }
 
   if (requireCsrf) {
     const header = request.headers.get("x-csrf-token") ?? "";

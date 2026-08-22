@@ -4,6 +4,7 @@ import { HttpError } from "./http";
 import { RAW_SPIN_RETENTION_HOURS } from "./maintenance";
 import { ensureProductionSchema } from "./schema";
 import { getSpinSettings } from "./settings";
+import { STORAGE_SAFETY_LIMIT_BYTES } from "./storage-safety";
 import type { PrizeType } from "./wheel";
 
 export type AdminRecordView = "users" | "wins" | "referrals";
@@ -161,6 +162,9 @@ export async function getAdminOverview() {
     settings,
     storage: {
       databaseBytes: numeric(databaseSize[0]?.bytes),
+      safetyLimitBytes: STORAGE_SAFETY_LIMIT_BYTES,
+      remainingBeforePause: Math.max(0, STORAGE_SAFETY_LIMIT_BYTES - numeric(databaseSize[0]?.bytes)),
+      safetyPaused: numeric(databaseSize[0]?.bytes) >= STORAGE_SAFETY_LIMIT_BYTES,
       rawEvents: numeric(retentionRow?.raw_events),
       recordedAttempts: numeric(retentionRow?.recorded_attempts),
       rawRetentionHours: RAW_SPIN_RETENTION_HOURS,

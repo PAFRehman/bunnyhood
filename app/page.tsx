@@ -102,7 +102,7 @@ export default function Home() {
             <div className="roadmap-copy"><p>Stake your BunnyHood to earn points and unlock more ecosystem benefits: AI Agent utility, increased chances for ecosystem spots, holder rewards, and future opportunities. Projects using our planned staking product will need to provide incentives for BunnyHood holders and stakers. Staking is only one of several products planned, and those points are planned to become convertible into Σ:</p><blockquote>What is Σ: ? You will find out.</blockquote></div>
           </article>
         </div>
-        <div className="roadmap-close"><span>ONE HOOD</span><strong>More utility. More experiments.<br />More, more and more soon.</strong></div>
+        <div className="roadmap-close"><strong>More, more and more soon.</strong></div>
       </section>
 
       <section className="access-placeholder">

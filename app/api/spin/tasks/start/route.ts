@@ -1,6 +1,7 @@
 import { requireSessionUser } from "@/lib/spin/auth";
 import { startCampaignTask, type TaskType } from "@/lib/spin/campaigns";
 import { assertSameOrigin, HttpError, json, readJson, routeError } from "@/lib/spin/http";
+import { assertPublicStorageWritable } from "@/lib/spin/storage-safety";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,6 +9,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   try {
     assertSameOrigin(request);
+    await assertPublicStorageWritable();
     const user = await requireSessionUser(request, true);
     const body = await readJson<{ task?: string }>(request);
     if (!body.task || !["like", "repost", "comment"].includes(body.task)) {

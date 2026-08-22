@@ -69,7 +69,7 @@ Vercel builds and deploys automatically. Its daily cron calls `/api/cron/spin-ma
 4. Spin and confirm lifetime earned, left, used, points, and wins remain after reconnecting.
 5. Open `https://www.bunnyhood.xyz/admin/spin` and sign in with the plain password corresponding to `ADMIN_PASSWORD_HASH`.
 6. Confirm **Integrity** shows zero accounting and win mismatches.
-7. Search Users, Wins & Wallets, and Referrals; download the complete Excel export.
+7. Search Users, Wins & Wallets, and Referrals; choose complete Excel or an individual CSV export. CSV is recommended for phones and Google Sheets.
 8. Use **Run safe cleanup now** once. Permanent totals and wins must remain unchanged.
 
 ## Permanent versus compacted records

@@ -1,5 +1,6 @@
 import { requireSessionUser } from "@/lib/spin/auth";
 import { assertSameOrigin, json, readJson, routeError } from "@/lib/spin/http";
+import { assertPublicStorageWritable } from "@/lib/spin/storage-safety";
 import { removeWinWallet, submitWinWallet } from "@/lib/spin/wheel";
 
 export const runtime = "nodejs";
@@ -12,6 +13,7 @@ export async function POST(
 ) {
   try {
     assertSameOrigin(request);
+    await assertPublicStorageWritable();
     const user = await requireSessionUser(request, true);
     const { winId } = await context.params;
     const body = await readJson<{ wallet?: string }>(request);
@@ -28,6 +30,7 @@ export async function DELETE(
 ) {
   try {
     assertSameOrigin(request);
+    await assertPublicStorageWritable();
     const user = await requireSessionUser(request, true);
     const { winId } = await context.params;
     const result = await removeWinWallet(user, winId);
