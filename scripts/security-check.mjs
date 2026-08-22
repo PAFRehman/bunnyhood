@@ -14,6 +14,7 @@ function filesIn(directory) {
 }
 
 const files = filesIn(root).filter((path) => {
+  if (relative(root, path) === "scripts/security-check.mjs") return false;
   const name = path.slice(path.lastIndexOf("/"));
   const extension = path.slice(path.lastIndexOf("."));
   return name === "/.env.example" || textExtensions.has(extension);
@@ -25,6 +26,7 @@ const migration = [
   "003_referrals_fair_campaigns.sql",
   "004_wallet_permissions_and_sync.sql",
   "005_wallet_submission_control.sql",
+  "006_production_data_platform.sql",
 ].map((name) => readFileSync(join(root, "db/migrations", name), "utf8")).join("\n");
 const wheel = readFileSync(join(root, "lib/spin/wheel.ts"), "utf8");
 const campaigns = readFileSync(join(root, "lib/spin/campaigns.ts"), "utf8");
@@ -34,6 +36,10 @@ const taskStartRoute = readFileSync(join(root, "app/api/spin/tasks/start/route.t
 const taskClaimRoute = readFileSync(join(root, "app/api/spin/tasks/claim/route.ts"), "utf8");
 const walletRoute = readFileSync(join(root, "app/api/spin/wins/[winId]/wallet/route.ts"), "utf8");
 const adminApp = readFileSync(join(root, "app/admin/spin/spin-admin-app.tsx"), "utf8");
+const adminData = readFileSync(join(root, "lib/spin/admin-data.ts"), "utf8");
+const maintenance = readFileSync(join(root, "lib/spin/maintenance.ts"), "utf8");
+const progress = readFileSync(join(root, "lib/spin/progress.ts"), "utf8");
+const excel = readFileSync(join(root, "lib/spin/excel.ts"), "utf8");
 const xIntegration = readFileSync(join(root, "lib/spin/x.ts"), "utf8");
 const xStart = readFileSync(join(root, "app/api/spin/auth/x/start/route.ts"), "utf8");
 const failures = [];
@@ -79,15 +85,22 @@ if (/state\.campaign && \(\s*<>\s*<section className="daily-campaign"/.test(whee
 if (!/getLatestPrizeCampaign/.test(campaigns) || !/wheelAvailable/.test(`${wheel}\n${wheelApp}`) || !/NO_PRIZE_POOL/.test(wheel)) failures.push("Between-campaign spinning is missing or can consume unconfigured spins.");
 if (!/Share referral link on X/.test(wheelApp) || !/Share win on X/.test(wheelApp)) failures.push("X referral and win sharing are missing.");
 if (/20 DAYS|PRIVATE PACED CAMPAIGN DRAW|hero-mini-wheel/.test(wheelApp)) failures.push("Removed hero campaign copy or dummy wheel is still rendered.");
-if (!/flushSheetOutboxForKey/.test(source) || !/queueFullSheetBackfill/.test(source) || !/Sync pending rows now/.test(adminApp)) failures.push("Immediate and full Google Sheet recovery paths are missing.");
-if (!/deliverSingleRow/.test(source) || !/sheetSynced/.test(walletRoute)) failures.push("Immediate single-row wallet Sheet delivery is missing.");
-if (!/SHEET_DESTINATION_STATE_KEY/.test(source)) failures.push("Google Sheet destination-change replay is missing.");
-if (!/NON_JSON_RESPONSE/.test(source) || !/Google rejected the webhook token/.test(adminApp)) failures.push("Safe Google Sheet delivery diagnostics are missing.");
-if (!/walletChangeAllowed/.test(source) || !/Lock wallet changes/.test(adminApp)) failures.push("Admin wallet-change permission is missing.");
+if (/flushSheetOutbox|queueSheetSync|sheetSynced|Google Sheets will retry/.test(source)) failures.push("The retired Google Sheets write path is still coupled to production requests.");
+if (!/spins_earned = spins_available \+ spins_used/.test(migration) || !/spins_earned = spins_earned \+/.test(`${campaigns}\n${users}\n${wheel}`)) failures.push("Permanent lifetime spin accounting is missing.");
+if (!/spins_processed bigint not null default 0/.test(migration) || !/campaign\.spins_processed/.test(wheel)) failures.push("Permanent campaign attempt pacing is missing.");
+if (!/spin_daily_rollups/.test(migration) || !/RAW_SPIN_RETENTION_HOURS = 72/.test(maintenance)) failures.push("Bounded raw-event retention and permanent rollups are missing.");
+if (!/spin_user_campaign_progress/.test(migration) || !/task_claimed_bits bigint/.test(migration) || !/code_redeemed_bits bigint/.test(migration)) failures.push("Compact per-campaign reward eligibility is missing.");
+if (/insert into spin_task_claims|insert into spin_code_redemptions/.test(`${campaigns}\n${wheel}`) || !/markTaskReward/.test(progress) || !/markCodeReward/.test(progress)) failures.push("Runtime rewards still create one permanent row per task or code claim.");
+if (!/metric_shard smallint/.test(migration) || !/spin_campaign_counters/.test(migration) || !/userMetricShard/.test(wheel)) failures.push("High-concurrency campaign counters are not sharded.");
+if (!/insert into spin_daily_rollups/.test(wheel) || !/rollup_recorded/.test(wheel) || !/if \(winId\)/.test(wheel)) failures.push("Spin attempts are not written directly to compact permanent rollups.");
+if (!/spin_connected_user_counters/.test(migration) || !/from spin_connected_user_counters/.test(wheel)) failures.push("Connected-user reads still require a full public table count.");
+if (!/spin_wallet_registry/.test(migration) || !/spin_wallet_history/.test(migration) || !/walletHash/.test(wheel)) failures.push("Wallet anti-reuse history is missing.");
+if (!/Download complete Excel/.test(adminApp) || !/streamBunnyHoodWorkbook/.test(excel)) failures.push("Protected direct Excel export is missing.");
+if (!/\.cursor\(CURSOR_ROWS\)/.test(excel)) failures.push("Large admin Excel exports are not cursor-streamed.");
+if (!/getAdminRecords/.test(adminData) || !/LIVE NEON RECORDS/.test(adminApp)) failures.push("The live admin data explorer is missing.");
+if (!/Lock wallet changes/.test(adminApp)) failures.push("Admin wallet-change permission is missing.");
 if (!/setWalletSubmissionsAllowed/.test(source) || !/Pause wallet submissions/.test(adminApp)) failures.push("Admin wallet-submission permission is missing.");
 if (!/export async function DELETE/.test(walletRoute) || !/removeWinWallet/.test(`${walletRoute}\n${wheel}`) || !/Remove wallet/.test(wheelApp)) failures.push("User wallet removal is missing.");
-if (!/normalizedSpinUser_/.test(source) || !/normalizedSpinReferral_/.test(source)) failures.push("Legacy Google Sheet payload normalization is missing.");
-if (!/handleBatch_/.test(source) || !/eventType: "batch"/.test(source) || !/jsonb_to_recordset/.test(source)) failures.push("Timeout-safe bulk Google Sheet delivery is missing.");
 if (!/xShareUrl\([\s\S]{0,180}referralLink/.test(wheelApp)) failures.push("Referral links are not attached to X shares.");
 if (/GTD LEFT|FCFS1 LEFT|FCFS2 LEFT|Daily prize inventory/.test(wheelApp)) failures.push("Private prize counts are exposed in the public UI.");
 if (!/Total GTD/.test(adminApp) || !/Expected connected users/.test(adminApp)) failures.push("Admin campaign controls are incomplete.");

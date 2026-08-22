@@ -13,10 +13,10 @@
     "lint": "eslint .",
     "security:check": "node scripts/security-check.mjs",
     "generate:secrets": "node scripts/generate-secrets.mjs",
-    "test:sheets": "node scripts/test-sheet-payloads.mjs",
-    "test": "npm run lint && npm run security:check && npm run test:sheets && npm run build"
+    "test": "npm run lint && npm run security:check && npm run build"
   },
   "dependencies": {
+    "exceljs": "^4.4.0",
     "next": "^16.3.1",
     "postgres": "^3.4.9",
     "react": "19.2.6",

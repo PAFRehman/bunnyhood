@@ -2,12 +2,11 @@ import { randomUUID } from "node:crypto";
 import { getXConfig } from "./config";
 import { inTransaction } from "./db";
 import { HttpError } from "./http";
+import { ensureProductionSchema } from "./schema";
 import { seal } from "./security";
-import { queueSheetSync } from "./sheets";
 import {
   applyNewUserReferral,
   ensureReferralCode,
-  spinUserSheetPayload,
   type SpinUserRow,
 } from "./users";
 
@@ -80,6 +79,7 @@ export async function upsertXUser(
   token: XTokenReply,
   incomingReferralCode?: string | null,
 ) {
+  await ensureProductionSchema();
   return inTransaction(async (sql) => {
     await sql`select pg_advisory_xact_lock(hashtext(${`x-user:${profile.id}`}))`;
     const existing = await sql<{ id: string }[]>`
@@ -99,7 +99,7 @@ export async function upsertXUser(
         ${profile.profile_image_url ?? null}, ${profile.created_at ?? null}::timestamptz,
         ${encryptedAccessToken}, ${encryptedRefreshToken}, ${tokenExpiresAt}::timestamptz
       )
-      returning id, x_user_id, x_username, x_name, spins_available, spins_used, points, total_wins,
+      returning id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, total_wins,
         referral_code, referral_count, referral_spins_earned
     ` : await sql<SpinUserRow[]>`
       update spin_users
@@ -110,9 +110,10 @@ export async function upsertXUser(
           x_access_token_enc = ${encryptedAccessToken},
           x_refresh_token_enc = coalesce(${encryptedRefreshToken}, x_refresh_token_enc),
           x_token_expires_at = ${tokenExpiresAt}::timestamptz,
+          last_seen_at = now(),
           updated_at = now()
       where id = ${existing[0].id}::uuid
-      returning id, x_user_id, x_username, x_name, spins_available, spins_used, points, total_wins,
+      returning id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, total_wins,
         referral_code, referral_count, referral_spins_earned
     `;
 
@@ -122,7 +123,6 @@ export async function upsertXUser(
     const referralApplied = isNew
       ? await applyNewUserReferral(sql, user, incomingReferralCode)
       : false;
-    await queueSheetSync(sql, "spin_user", `user:${user.id}`, spinUserSheetPayload(user));
     return { userId: user.id, isNew, referralApplied };
   });
 }

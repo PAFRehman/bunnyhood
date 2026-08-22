@@ -1,43 +1,37 @@
 # Bunny Hood
 
-Production-ready Next.js website for Bunny Hood on Vercel.
+Production Next.js application for Bunny Hood on Vercel.
 
-## Routes
+## Public routes
 
-- `/` — collection homepage
-- `/SpinTheWheel` — X-connected five-second campaign tasks, code redemption, wheel, and winner profile
-- `/admin/spin` — private campaign control room
+- `/` — collection website and roadmap
+- `/SpinTheWheel` — X-connected rewards, referrals, code redemption, wheel, wins, and wallets
+- `/admin/spin` — private live Neon control room and Excel export
 
-Old `/getWL` and `/whitelist` links redirect to `/SpinTheWheel`.
+Old `/getWL`, `/whitelist`, `/spin`, and lowercase wheel links redirect to `/SpinTheWheel`.
 
-## Spin system
+## Production data model
 
-- X OAuth 2.0 PKCE login with encrypted user tokens
-- one-click five-second tasks that automatically award 1 spin + 1 point, with no paid X task-verification API calls
-- one cryptographically random 10–20 spin code redemption per campaign
-- custom username-style referral codes and 3 spins for each newly connected referred X account
-- always-visible referral tools after X connection, even when no daily campaign is live
-- X sharing for referral links, individual wins, and batch results
-- private admin-set GTD, FCFS1, and FCFS2 campaign inventories paced across a 20-day campaign
-- one 20-day prize pool with fresh daily tweet/code rounds, so daily eligibility resets without resetting inventory
-- saved and referral spins remain usable against the latest configured prize pool between campaign rounds
-- equal server-side odds per spin with private repeat-win protection and GTD kept as the rarest inventory
-- single-spin animation with skip control or idempotent batches of up to 100 spins
-- transaction-safe balances and a maximum of three wins per role (nine total) per X account
-- one globally unique EVM wallet per win, with user replacement/removal and separate admin controls for submissions and changes
-- protected Google Sheets mirrors with immediate wallet-row updates, full Neon backfill, legacy-record repair, and timeout-safe bulk delivery
-- server-side rate limits, origin and CSRF checks, hashed codes, encrypted X tokens, and private admin sessions
+Neon PostgreSQL is the only source of truth. Google Sheets and Apps Script are not part of the request path.
 
-## Setup
+- Points, lifetime spins earned, spins left, spins used, referrals, wins, roles, and current wallets are permanent.
+- Every reward changes the spin accounting atomically: `spins earned = spins left + spins used`.
+- GTD, FCFS1, and FCFS2 wins remain in `spin_wins`; each user is capped at three of each role.
+- Current wallets are stored against their wins. A hash-only registry prevents reuse after replacement or removal.
+- Every batch updates 64-way sharded permanent daily totals; no-prize and refunded spins do not create one database row each.
+- One compact bitmask row per user/campaign enforces all 60 tasks and 20 code claims instead of creating up to 80 permanent eligibility rows.
+- Winning technical events are retained for 72 hours and idempotent batch responses for six hours; the permanent wins and aggregate totals remain.
+- Expired task timers, campaign progress, sessions, rate-limit buckets, old batch responses, and the retired Sheet queue are cleaned daily.
+- The admin dashboard reads Neon directly every five seconds and cursor-streams current records to `.xlsx` in bounded batches instead of loading the complete dataset into server memory.
 
-Follow [SPIN_THE_WHEEL_SETUP.md](SPIN_THE_WHEEL_SETUP.md) before deployment. New installs run migrations `001` through `005` in order. Existing installations that already ran migration `004` run only `db/migrations/005_wallet_submission_control.sql`. The required Google Apps Script is in `google-apps-script/Code.gs`.
+The first authenticated request after deployment applies migration `006` automatically and preserves all existing data. The SQL file remains in `db/migrations/006_production_data_platform.sql` for auditing or manual recovery.
 
-Run locally:
+## Local checks
 
 ```bash
 npm install
-npm run test
+npm test
 npm run dev
 ```
 
-Never commit `.env.local` or place private values in a variable beginning with `NEXT_PUBLIC_`.
+See [SPIN_THE_WHEEL_SETUP.md](SPIN_THE_WHEEL_SETUP.md) for production configuration. Never commit `.env.local`, database URLs, X secrets, or admin credentials.

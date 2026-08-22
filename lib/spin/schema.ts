@@ -1,0 +1,359 @@
+import { getDb, inTransaction } from "./db";
+import { sha256 } from "./security";
+
+const MIGRATION_ID = "006_production_data_platform";
+
+const statements = [
+  `alter table spin_users
+    add column if not exists spins_earned bigint not null default 0,
+    add column if not exists last_seen_at timestamptz not null default now(),
+    add column if not exists last_spin_at timestamptz`,
+  `update spin_users
+    set spins_earned = spins_available::bigint + spins_used
+    where spins_earned <> spins_available::bigint + spins_used`,
+  `alter table spin_users
+    alter column spins_available type bigint using spins_available::bigint,
+    alter column points type bigint using points::bigint`,
+  `alter table spin_users drop constraint if exists spin_users_spin_accounting_check`,
+  `alter table spin_users add constraint spin_users_spin_accounting_check
+    check (spins_earned = spins_available + spins_used)`,
+  `create index if not exists spin_users_last_seen_idx on spin_users(last_seen_at desc)`,
+  `alter table spin_campaigns
+    add column if not exists spins_processed bigint not null default 0`,
+  `update spin_campaigns campaigns
+    set spins_processed = greatest(
+      campaigns.spins_processed,
+      (select count(*)::bigint from spin_events events where events.campaign_id = campaigns.id)
+    )`,
+  `create table if not exists spin_daily_rollups (
+    campaign_id uuid not null references spin_campaigns(id) on delete restrict,
+    metric_day date not null,
+    metric_shard smallint not null default 0 check (metric_shard between 0 and 63),
+    attempts bigint not null default 0 check (attempts >= 0),
+    spins_consumed bigint not null default 0 check (spins_consumed >= 0),
+    spins_refunded bigint not null default 0 check (spins_refunded >= 0),
+    no_prize bigint not null default 0 check (no_prize >= 0),
+    gtd_wins bigint not null default 0 check (gtd_wins >= 0),
+    fcfs1_wins bigint not null default 0 check (fcfs1_wins >= 0),
+    fcfs2_wins bigint not null default 0 check (fcfs2_wins >= 0),
+    updated_at timestamptz not null default now(),
+    primary key (campaign_id, metric_day, metric_shard)
+  )`,
+  `alter table spin_daily_rollups
+    add column if not exists metric_shard smallint not null default 0`,
+  `alter table spin_daily_rollups drop constraint if exists spin_daily_rollups_pkey`,
+  `alter table spin_daily_rollups add constraint spin_daily_rollups_pkey
+    primary key (campaign_id, metric_day, metric_shard)`,
+  `create index if not exists spin_daily_rollups_day_idx on spin_daily_rollups(metric_day desc)`,
+  `create table if not exists spin_campaign_counters (
+    campaign_id uuid not null references spin_campaigns(id) on delete cascade,
+    counter_shard smallint not null check (counter_shard between 0 and 63),
+    spins_processed bigint not null default 0 check (spins_processed >= 0),
+    updated_at timestamptz not null default now(),
+    primary key (campaign_id, counter_shard)
+  )`,
+  `insert into spin_campaign_counters (campaign_id, counter_shard, spins_processed)
+    select id, 0, spins_processed from spin_campaigns
+    on conflict (campaign_id, counter_shard) do update set
+      spins_processed = greatest(
+        spin_campaign_counters.spins_processed,
+        excluded.spins_processed
+      ),
+      updated_at = now()`,
+  `create table if not exists spin_global_counters (
+    id smallint primary key default 1 check (id = 1),
+    connected_users bigint not null default 0 check (connected_users >= 0),
+    updated_at timestamptz not null default now()
+  )`,
+  `insert into spin_global_counters (id, connected_users)
+    values (1, (select count(*)::bigint from spin_users))
+    on conflict (id) do update set
+      connected_users = excluded.connected_users,
+      updated_at = now()`,
+  `create table if not exists spin_connected_user_counters (
+    counter_shard smallint primary key check (counter_shard between 0 and 63),
+    connected_users bigint not null default 0 check (connected_users >= 0),
+    updated_at timestamptz not null default now()
+  )`,
+  `insert into spin_connected_user_counters (counter_shard, connected_users)
+    select (hashtextextended(id::text, 0) & 63::bigint)::smallint,
+      count(*)::bigint
+    from spin_users
+    group by (hashtextextended(id::text, 0) & 63::bigint)::smallint
+    on conflict (counter_shard) do update set
+      connected_users = excluded.connected_users,
+      updated_at = now()`,
+  `create or replace function sync_spin_connected_users()
+    returns trigger language plpgsql as $$
+    declare
+      affected_user_id uuid;
+      affected_shard smallint;
+    begin
+      if tg_op = 'INSERT' then
+        affected_user_id := new.id;
+        affected_shard := (hashtextextended(affected_user_id::text, 0) & 63::bigint)::smallint;
+        insert into spin_connected_user_counters (counter_shard, connected_users)
+        values (affected_shard, 1)
+        on conflict (counter_shard) do update set
+          connected_users = spin_connected_user_counters.connected_users + 1,
+          updated_at = now();
+        return new;
+      end if;
+      affected_user_id := old.id;
+      affected_shard := (hashtextextended(affected_user_id::text, 0) & 63::bigint)::smallint;
+      update spin_connected_user_counters
+      set connected_users = greatest(0, connected_users - 1), updated_at = now()
+      where counter_shard = affected_shard;
+      return old;
+    end;
+    $$`,
+  `drop trigger if exists spin_users_connected_counter_trigger on spin_users`,
+  `create trigger spin_users_connected_counter_trigger
+    after insert or delete on spin_users
+    for each row execute function sync_spin_connected_users()`,
+  `create table if not exists spin_user_campaign_progress (
+    user_id uuid not null references spin_users(id) on delete cascade,
+    campaign_id uuid not null references spin_campaigns(id) on delete cascade,
+    task_claimed_bits bigint not null default 0 check (task_claimed_bits >= 0),
+    code_redeemed_bits bigint not null default 0 check (code_redeemed_bits >= 0),
+    task_rewards_earned integer not null default 0 check (task_rewards_earned between 0 and 60),
+    code_redemptions integer not null default 0 check (code_redemptions between 0 and 20),
+    code_spins_earned integer not null default 0 check (code_spins_earned between 0 and 400),
+    code_spin_awards jsonb not null default '{}'::jsonb check (jsonb_typeof(code_spin_awards) = 'object'),
+    updated_at timestamptz not null default now(),
+    primary key (user_id, campaign_id)
+  )`,
+  `create index if not exists spin_user_campaign_progress_campaign_idx
+    on spin_user_campaign_progress(campaign_id, updated_at desc)`,
+  `alter table spin_user_campaign_progress
+    add column if not exists code_spin_awards jsonb not null default '{}'::jsonb`,
+  `insert into spin_user_campaign_progress (
+      user_id, campaign_id, task_claimed_bits, task_rewards_earned
+    )
+    select claims.user_id, claims.campaign_id,
+      sum(
+        1::bigint << (
+          (rounds.round_number - 1) * 3
+          + case claims.task_type when 'like' then 0 when 'repost' then 1 else 2 end
+        )
+      )::bigint,
+      count(*)::integer
+    from spin_task_claims claims
+    join spin_campaign_rounds rounds on rounds.id = claims.round_id
+    group by claims.user_id, claims.campaign_id
+    on conflict (user_id, campaign_id) do update set
+      task_claimed_bits = spin_user_campaign_progress.task_claimed_bits | excluded.task_claimed_bits,
+      task_rewards_earned = greatest(
+        spin_user_campaign_progress.task_rewards_earned,
+        excluded.task_rewards_earned
+      ),
+      updated_at = now()`,
+  `insert into spin_user_campaign_progress (
+      user_id, campaign_id, code_redeemed_bits, code_redemptions,
+      code_spins_earned, code_spin_awards
+    )
+    select redemptions.user_id, redemptions.campaign_id,
+      sum(1::bigint << (rounds.round_number - 1))::bigint,
+      count(*)::integer,
+      sum(redemptions.awarded_spins)::integer,
+      jsonb_object_agg(rounds.round_number::text, redemptions.awarded_spins)
+    from spin_code_redemptions redemptions
+    join spin_campaign_rounds rounds on rounds.id = redemptions.round_id
+    group by redemptions.user_id, redemptions.campaign_id
+    on conflict (user_id, campaign_id) do update set
+      code_redeemed_bits = spin_user_campaign_progress.code_redeemed_bits | excluded.code_redeemed_bits,
+      code_redemptions = greatest(
+        spin_user_campaign_progress.code_redemptions,
+        excluded.code_redemptions
+      ),
+      code_spins_earned = greatest(
+        spin_user_campaign_progress.code_spins_earned,
+        excluded.code_spins_earned
+      ),
+      code_spin_awards = spin_user_campaign_progress.code_spin_awards || excluded.code_spin_awards,
+      updated_at = now()`,
+  `delete from spin_task_claims`,
+  `delete from spin_code_redemptions`,
+  `create table if not exists spin_wallet_registry (
+    wallet_hash char(64) primary key,
+    first_win_id uuid not null references spin_wins(id) on delete restrict,
+    first_user_id uuid not null references spin_users(id) on delete restrict,
+    first_seen_at timestamptz not null default now()
+  )`,
+  `create table if not exists spin_wallet_history (
+    id bigserial primary key,
+    win_id uuid not null references spin_wins(id) on delete restrict,
+    user_id uuid not null references spin_users(id) on delete restrict,
+    action text not null check (action in ('submitted', 'replaced', 'removed')),
+    wallet_hash char(64) not null,
+    created_at timestamptz not null default now()
+  )`,
+  `create index if not exists spin_wallet_history_win_idx
+    on spin_wallet_history(win_id, created_at desc)`,
+  `create table if not exists spin_maintenance_runs (
+    id bigserial primary key,
+    raw_events_archived bigint not null default 0,
+    batches_removed bigint not null default 0,
+    sessions_removed bigint not null default 0,
+    rate_limits_removed bigint not null default 0,
+    legacy_outbox_removed bigint not null default 0,
+    task_timers_removed bigint not null default 0,
+    campaign_progress_removed bigint not null default 0,
+    legacy_reward_rows_removed bigint not null default 0,
+    completed_at timestamptz not null default now()
+  )`,
+  `alter table spin_maintenance_runs
+    add column if not exists task_timers_removed bigint not null default 0,
+    add column if not exists campaign_progress_removed bigint not null default 0,
+    add column if not exists legacy_reward_rows_removed bigint not null default 0`,
+  `create index if not exists spin_maintenance_runs_completed_idx
+    on spin_maintenance_runs(completed_at desc)`,
+  `create table if not exists spin_admin_audit_log (
+    id bigserial primary key,
+    action text not null,
+    metadata jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now()
+  )`,
+  `create index if not exists spin_admin_audit_created_idx
+    on spin_admin_audit_log(created_at desc)`,
+  `alter table spin_prize_slots drop constraint if exists spin_prize_slots_spin_event_fk`,
+  `alter table spin_prize_slots add constraint spin_prize_slots_spin_event_fk
+    foreign key (spin_event_id) references spin_events(id)
+    on delete set null deferrable initially deferred`,
+  `alter table spin_events
+    add column if not exists rollup_recorded boolean not null default false`,
+  `insert into spin_daily_rollups (
+      campaign_id, metric_day, metric_shard, attempts, spins_consumed, spins_refunded,
+      no_prize, gtd_wins, fcfs1_wins, fcfs2_wins, updated_at
+    )
+    select campaign_id, (created_at at time zone 'UTC')::date,
+      (hashtextextended(user_id::text, 0) & 63::bigint)::smallint,
+      count(*)::bigint,
+      count(*) filter (where result <> 'REFUND')::bigint,
+      count(*) filter (where result = 'REFUND')::bigint,
+      count(*) filter (where result = 'NONE')::bigint,
+      count(*) filter (where result = 'GTD')::bigint,
+      count(*) filter (where result = 'FCFS1')::bigint,
+      count(*) filter (where result = 'FCFS2')::bigint,
+      now()
+    from spin_events
+    where campaign_id is not null and rollup_recorded = false
+    group by campaign_id, (created_at at time zone 'UTC')::date,
+      (hashtextextended(user_id::text, 0) & 63::bigint)::smallint
+    on conflict (campaign_id, metric_day, metric_shard) do update set
+      attempts = spin_daily_rollups.attempts + excluded.attempts,
+      spins_consumed = spin_daily_rollups.spins_consumed + excluded.spins_consumed,
+      spins_refunded = spin_daily_rollups.spins_refunded + excluded.spins_refunded,
+      no_prize = spin_daily_rollups.no_prize + excluded.no_prize,
+      gtd_wins = spin_daily_rollups.gtd_wins + excluded.gtd_wins,
+      fcfs1_wins = spin_daily_rollups.fcfs1_wins + excluded.fcfs1_wins,
+      fcfs2_wins = spin_daily_rollups.fcfs2_wins + excluded.fcfs2_wins,
+      updated_at = now()`,
+  `delete from spin_events where rollup_recorded = false`,
+  `create index if not exists spin_events_created_idx on spin_events(created_at)`,
+  `create index if not exists spin_wins_wallet_pending_idx
+    on spin_wins(won_at desc) where wallet_address is null`,
+  `create or replace function sync_spin_user_total_wins()
+    returns trigger language plpgsql as $$
+    declare affected_user_id uuid;
+    begin
+      if tg_op = 'DELETE' then
+        affected_user_id := old.user_id;
+      else
+        affected_user_id := new.user_id;
+      end if;
+      update spin_users
+      set total_wins = (
+            select count(*)::integer from spin_wins where user_id = affected_user_id
+          ),
+          updated_at = now()
+      where id = affected_user_id;
+      if tg_op = 'DELETE' then
+        return old;
+      end if;
+      return new;
+    end;
+    $$`,
+  `drop trigger if exists spin_wins_total_sync_trigger on spin_wins`,
+  `create trigger spin_wins_total_sync_trigger
+    after insert or delete on spin_wins
+    for each row execute function sync_spin_user_total_wins()`,
+  `update spin_users users
+    set total_wins = (
+      select count(*)::integer from spin_wins wins where wins.user_id = users.id
+    )
+    where total_wins <> (
+      select count(*)::integer from spin_wins wins where wins.user_id = users.id
+    )`,
+] as const;
+
+declare global {
+  var bunnyHoodProductionSchema: Promise<void> | undefined;
+}
+
+async function migrate() {
+  const sql = getDb();
+  await sql`
+    create table if not exists spin_schema_migrations (
+      migration_id text primary key,
+      applied_at timestamptz not null default now()
+    )
+  `;
+  const applied = await sql<{ applied: boolean }[]>`
+    select exists(
+      select 1 from spin_schema_migrations where migration_id = ${MIGRATION_ID}
+    ) as applied
+  `;
+  if (applied[0]?.applied) return;
+
+  await inTransaction(async (transaction) => {
+    await transaction`select pg_advisory_xact_lock(hashtext('bunny-hood-production-schema'))`;
+    const alreadyApplied = await transaction<{ applied: boolean }[]>`
+      select exists(
+        select 1 from spin_schema_migrations where migration_id = ${MIGRATION_ID}
+      ) as applied
+    `;
+    if (alreadyApplied[0]?.applied) return;
+
+    for (const statement of statements) await transaction.unsafe(statement);
+
+    const currentWallets = await transaction<{
+      id: string;
+      user_id: string;
+      wallet_address: string;
+      wallet_submitted_at: Date | string;
+    }[]>`
+      select id, user_id, wallet_address, wallet_submitted_at
+      from spin_wins
+      where wallet_address is not null and wallet_submitted_at is not null
+    `;
+    for (const wallet of currentWallets) {
+      const walletHash = sha256(wallet.wallet_address.toLowerCase());
+      await transaction`
+        insert into spin_wallet_registry (
+          wallet_hash, first_win_id, first_user_id, first_seen_at
+        ) values (
+          ${walletHash}, ${wallet.id}::uuid, ${wallet.user_id}::uuid,
+          ${new Date(wallet.wallet_submitted_at).toISOString()}::timestamptz
+        )
+        on conflict (wallet_hash) do nothing
+      `;
+    }
+
+    await transaction`
+      insert into spin_schema_migrations (migration_id)
+      values (${MIGRATION_ID})
+      on conflict (migration_id) do nothing
+    `;
+  });
+}
+
+export async function ensureProductionSchema() {
+  if (!globalThis.bunnyHoodProductionSchema) {
+    globalThis.bunnyHoodProductionSchema = migrate().catch((error) => {
+      globalThis.bunnyHoodProductionSchema = undefined;
+      throw error;
+    });
+  }
+  return globalThis.bunnyHoodProductionSchema;
+}

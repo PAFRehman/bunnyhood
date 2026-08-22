@@ -1,4 +1,5 @@
 import { ADMIN_COOKIE, ADMIN_MAX_AGE_SECONDS } from "@/lib/spin/config";
+import { recordAdminAction } from "@/lib/spin/audit";
 import { assertSameOrigin, HttpError, json, readJson, routeError, secureCookie } from "@/lib/spin/http";
 import { anonymousRequestKey, enforceRateLimit } from "@/lib/spin/rate-limit";
 import { createAdminTicket, verifyAdminPassword } from "@/lib/spin/security";
@@ -15,6 +16,7 @@ export async function POST(request: Request) {
     if (password.length > 256 || !(await verifyAdminPassword(password))) {
       throw new HttpError(401, "Incorrect admin password.", "BAD_ADMIN_PASSWORD");
     }
+    await recordAdminAction("admin_login");
     return json({ ok: true }, 200, {
       "set-cookie": secureCookie(ADMIN_COOKIE, createAdminTicket(), {
         maxAge: ADMIN_MAX_AGE_SECONDS,
@@ -26,4 +28,3 @@ export async function POST(request: Request) {
     return routeError(error);
   }
 }
-

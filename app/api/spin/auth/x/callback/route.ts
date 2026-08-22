@@ -1,10 +1,8 @@
-import { after } from "next/server";
 import { createSession } from "@/lib/spin/auth";
 import { getAppUrl, OAUTH_COOKIE } from "@/lib/spin/config";
 import { getCookie, secureCookie } from "@/lib/spin/http";
 import { safeEqual, unseal } from "@/lib/spin/security";
 import { exchangeAuthorizationCode, fetchXMe, upsertXUser } from "@/lib/spin/x";
-import { flushSheetOutbox } from "@/lib/spin/sheets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,7 +29,6 @@ export async function GET(request: Request) {
     const profile = await fetchXMe(token.access_token);
     const account = await upsertXUser(profile, token, payload.referralCode);
     const session = await createSession(account.userId);
-    after(() => flushSheetOutbox());
     const headers = new Headers({
       location: `${getAppUrl()}/SpinTheWheel?connected=1${account.referralApplied ? "&referral=accepted" : ""}`,
       "cache-control": "no-store",

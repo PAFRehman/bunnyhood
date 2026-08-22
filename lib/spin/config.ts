@@ -41,12 +41,6 @@ export function getTokenEncryptionKey() {
   return key;
 }
 
-export function getSheetConfig() {
-  const url = process.env.GOOGLE_SHEETS_WEBHOOK_URL?.trim();
-  const token = process.env.GOOGLE_SHEETS_WEBHOOK_TOKEN?.trim();
-  return url && token ? { url, token } : null;
-}
-
 export const SPIN_COOKIE = "bh_spin_session";
 export const CSRF_COOKIE = "bh_spin_csrf";
 export const OAUTH_COOKIE = "bh_x_oauth";
@@ -54,4 +48,3 @@ export const ADMIN_COOKIE = "bh_spin_admin";
 
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 export const ADMIN_MAX_AGE_SECONDS = 60 * 60 * 8;
-

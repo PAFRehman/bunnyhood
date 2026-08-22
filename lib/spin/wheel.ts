@@ -5,11 +5,12 @@ import { getActiveCampaign, getLatestPrizeCampaign, settleMaturedCampaignTasks }
 import { requireStrongSecret } from "./config";
 import { getDb, inTransaction } from "./db";
 import { HttpError } from "./http";
+import { getRoundProgress, hasCodeReward, markCodeReward } from "./progress";
 import { enforceRateLimit } from "./rate-limit";
-import { hashRedeemCode, normalizeRedeemCode, safeEqual } from "./security";
-import { queueSheetSync } from "./sheets";
+import { ensureProductionSchema } from "./schema";
+import { hashRedeemCode, normalizeRedeemCode, safeEqual, sha256 } from "./security";
 import { getSpinSettings } from "./settings";
-import { ensureReferralCode, spinUserSheetPayload, type SpinUserRow } from "./users";
+import { ensureReferralCode, type SpinUserRow } from "./users";
 
 export type PrizeType = "GTD" | "FCFS1" | "FCFS2";
 export type SpinResult = PrizeType | "NONE" | "REFUND";
@@ -63,6 +64,10 @@ function isUuid(value: string) {
 
 function utcPrizeDay(date = new Date()) {
   return date.toISOString().slice(0, 10);
+}
+
+function userMetricShard(userId: string) {
+  return Number.parseInt(userId.replace(/-/g, "").slice(0, 8), 16) % 64;
 }
 
 function deterministicNumber(campaignId: string, prizeType: PrizeType, ordinal: number) {
@@ -178,27 +183,34 @@ export async function redeemCampaignCode(user: SpinUser, rawCode: string) {
       throw new HttpError(409, "The campaign changed. Refresh and use the new code.", "CAMPAIGN_CHANGED");
     }
     await transaction`select id from spin_users where id = ${user.id}::uuid for update`;
-    const existing = await transaction<{ awarded_spins: number }[]>`
-      select awarded_spins from spin_code_redemptions
-      where user_id = ${user.id}::uuid and round_id = ${campaign.round_id}::uuid
-      limit 1
-    `;
-    if (existing[0]) {
+    if (await hasCodeReward(
+      transaction,
+      user.id,
+      campaign.id,
+      campaign.round_number,
+    )) {
       throw new HttpError(409, "You already redeemed this campaign code.", "CODE_ALREADY_REDEEMED");
     }
     const awarded = randomInt(10, 21);
-    await transaction`
-      insert into spin_code_redemptions (id, user_id, campaign_id, round_id, awarded_spins)
-      values (${randomUUID()}, ${user.id}::uuid, ${campaign.id}::uuid, ${campaign.round_id}::uuid, ${awarded})
-    `;
+    const recorded = await markCodeReward(
+      transaction,
+      user.id,
+      campaign.id,
+      campaign.round_number,
+      awarded,
+    );
+    if (!recorded) {
+      throw new HttpError(409, "You already redeemed this campaign code.", "CODE_ALREADY_REDEEMED");
+    }
     const updated = await transaction<SpinUserRow[]>`
       update spin_users
-      set spins_available = spins_available + ${awarded}, updated_at = now()
+      set spins_available = spins_available + ${awarded},
+          spins_earned = spins_earned + ${awarded},
+          updated_at = now()
       where id = ${user.id}::uuid
-      returning id, x_user_id, x_username, x_name, spins_available, spins_used, points, total_wins,
+      returning id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, total_wins,
         referral_code, referral_count, referral_spins_earned
     `;
-    await queueSheetSync(transaction, "spin_user", `user:${user.id}`, spinUserSheetPayload(updated[0]));
     return { awardedSpins: awarded, spinsAvailable: Number(updated[0].spins_available) };
   });
 }
@@ -220,7 +232,7 @@ export async function playSpins(
   return inTransaction(async (sql) => {
     await sql`select pg_advisory_xact_lock_shared(hashtext('bunny-hood-active-campaign'))`;
     const locked = await sql<SpinUserRow[]>`
-      select id, x_user_id, x_username, x_name, spins_available, spins_used, points, total_wins,
+      select id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, total_wins,
         referral_code, referral_count, referral_spins_earned
       from spin_users where id = ${user.id}::uuid for update
     `;
@@ -247,6 +259,7 @@ export async function playSpins(
       throw new HttpError(409, "You do not have a spin available.", "NO_SPINS");
     }
     const processed = Math.min(requestedCount, availableAtStart);
+    const metricShard = userMetricShard(user.id);
 
     const prizes = await sql<CampaignPrize[]>`
       select campaign_id, prize_type, total_count, awarded_count
@@ -257,10 +270,7 @@ export async function playSpins(
     if (prizes.length !== 3) {
       throw new HttpError(503, "Campaign prizes are not configured yet.", "PRIZES_NOT_CONFIGURED");
     }
-    const observedRows = await sql<{ count: number }[]>`
-      select count(*)::int as count from spin_events where campaign_id = ${campaign.id}::uuid
-    `;
-    let observedCampaignSpins = Number(observedRows[0]?.count ?? 0);
+    let observedCampaignSpins = Number(campaign.spins_processed);
     const roleRows = await sql<{ prize_type: PrizeType; count: number }[]>`
       select prize_type, count(*)::int as count
       from spin_wins where user_id = ${user.id}::uuid group by prize_type
@@ -272,7 +282,6 @@ export async function playSpins(
     let spinsUsed = Number(current.spins_used);
     let totalWins = Number(current.total_wins);
     const outcomes: SpinOutcome[] = [];
-    const newWins: Array<{ winId: string; prizeType: PrizeType; wonAt: string }> = [];
 
     for (let index = 0; index < processed; index += 1) {
       const selectedType = choosePrize(campaign, prizes, observedCampaignSpins, roleWins);
@@ -322,7 +331,6 @@ export async function playSpins(
               insert into spin_wins (id, user_id, prize_slot_id, prize_type, won_at)
               values (${winId}, ${user.id}::uuid, ${prizeSlotId}::uuid, ${selectedType}, ${wonAt}::timestamptz)
             `;
-            newWins.push({ winId, prizeType: selectedType, wonAt });
           }
         }
       }
@@ -341,27 +349,39 @@ export async function playSpins(
         ...(winId ? { winId } : {}),
       };
       outcomes.push(outcome);
-      await sql`
-        insert into spin_events (
-          id, user_id, campaign_id, idempotency_key, result, prize_slot_id,
-          spins_before, spins_after, response
-        ) values (
-          ${eventId}, ${user.id}::uuid, ${campaign.id}::uuid, ${eventKey}::uuid,
-          ${result}, ${prizeSlotId}::uuid, ${spinsBefore}, ${spinsAvailable},
-          ${JSON.stringify(outcome)}::jsonb
-        )
-      `;
+      if (winId) {
+        await sql`
+          insert into spin_events (
+            id, user_id, campaign_id, idempotency_key, result, prize_slot_id,
+            spins_before, spins_after, response, rollup_recorded
+          ) values (
+            ${eventId}, ${user.id}::uuid, ${campaign.id}::uuid, ${eventKey}::uuid,
+            ${result}, ${prizeSlotId}::uuid, ${spinsBefore}, ${spinsAvailable},
+            ${JSON.stringify(outcome)}::jsonb, true
+          )
+        `;
+      }
     }
 
-    const updatedRows = await sql<SpinUserRow[]>`
+    await sql`
       update spin_users
       set spins_available = ${spinsAvailable},
           spins_used = ${spinsUsed},
           total_wins = ${totalWins},
+          last_spin_at = now(),
+          last_seen_at = now(),
           updated_at = now()
       where id = ${user.id}::uuid
-      returning id, x_user_id, x_username, x_name, spins_available, spins_used, points, total_wins,
-        referral_code, referral_count, referral_spins_earned
+    `;
+    await sql`
+      insert into spin_campaign_counters (
+        campaign_id, counter_shard, spins_processed, updated_at
+      ) values (
+        ${campaign.id}::uuid, ${metricShard}, ${processed}, now()
+      )
+      on conflict (campaign_id, counter_shard) do update set
+        spins_processed = spin_campaign_counters.spins_processed + excluded.spins_processed,
+        updated_at = now()
     `;
 
     const summary = {
@@ -371,6 +391,25 @@ export async function playSpins(
       FCFS1: outcomes.filter((outcome) => outcome.result === "FCFS1").length,
       FCFS2: outcomes.filter((outcome) => outcome.result === "FCFS2").length,
     };
+    await sql`
+      insert into spin_daily_rollups (
+        campaign_id, metric_day, metric_shard, attempts, spins_consumed, spins_refunded,
+        no_prize, gtd_wins, fcfs1_wins, fcfs2_wins, updated_at
+      ) values (
+        ${campaign.id}::uuid, ${utcPrizeDay()}::date, ${metricShard}, ${processed},
+        ${processed - summary.refunded}, ${summary.refunded}, ${summary.none},
+        ${summary.GTD}, ${summary.FCFS1}, ${summary.FCFS2}, now()
+      )
+      on conflict (campaign_id, metric_day, metric_shard) do update set
+        attempts = spin_daily_rollups.attempts + excluded.attempts,
+        spins_consumed = spin_daily_rollups.spins_consumed + excluded.spins_consumed,
+        spins_refunded = spin_daily_rollups.spins_refunded + excluded.spins_refunded,
+        no_prize = spin_daily_rollups.no_prize + excluded.no_prize,
+        gtd_wins = spin_daily_rollups.gtd_wins + excluded.gtd_wins,
+        fcfs1_wins = spin_daily_rollups.fcfs1_wins + excluded.fcfs1_wins,
+        fcfs2_wins = spin_daily_rollups.fcfs2_wins + excluded.fcfs2_wins,
+        updated_at = now()
+    `;
     const batchId = randomUUID();
     const response: SpinBatchResponse = {
       batchId,
@@ -391,20 +430,6 @@ export async function playSpins(
         ${idempotencyKey}::uuid, ${requestedCount}, ${JSON.stringify(response)}::jsonb
       )
     `;
-    await queueSheetSync(sql, "spin_user", `user:${user.id}`, spinUserSheetPayload(updatedRows[0]));
-    for (const win of newWins) {
-      await queueSheetSync(sql, "spin_win", `win:${win.winId}`, {
-        winId: win.winId,
-        userId: user.id,
-        xUserId: current.x_user_id,
-        xUsername: current.x_username,
-        xName: current.x_name,
-        prizeType: win.prizeType,
-        wonAt: win.wonAt,
-        wallet: "",
-        walletSubmittedAt: "",
-      });
-    }
     return response;
   });
 }
@@ -438,23 +463,24 @@ async function changeWinWallet(user: SpinUser, winId: string, walletValue: strin
       if (win.wallet_address && !settings.allowWalletChanges) {
         throw new HttpError(409, "Wallet changes are currently locked by Bunny Hood.", "WALLET_LOCKED");
       }
+      if (!win.wallet_address) {
+        return {
+          wallet: null,
+          alreadySubmitted: false,
+          walletUpdated: false,
+          walletRemoved: false,
+        };
+      }
+      const previousWalletHash = sha256(win.wallet_address.toLowerCase());
       await sql`
         update spin_wins
         set wallet_address = null, wallet_submitted_at = null
         where id = ${win.id}::uuid
       `;
-      await queueSheetSync(sql, "spin_win", `win:${win.id}`, {
-        winId: win.id,
-        userId: user.id,
-        xUserId: user.xUserId,
-        xUsername: user.xUsername,
-        xName: user.xName,
-        prizeType: win.prize_type,
-        wonAt: new Date(win.won_at).toISOString(),
-        wallet: "",
-        walletSubmittedAt: "",
-        walletChangeAllowed: settings.allowWalletChanges,
-      });
+      await sql`
+        insert into spin_wallet_history (win_id, user_id, action, wallet_hash)
+        values (${win.id}::uuid, ${user.id}::uuid, 'removed', ${previousWalletHash})
+      `;
       return {
         wallet: null,
         alreadySubmitted: false,
@@ -463,7 +489,8 @@ async function changeWinWallet(user: SpinUser, winId: string, walletValue: strin
       };
     }
 
-    await sql`select pg_advisory_xact_lock(hashtext(${`winner-wallet:${wallet.toLowerCase()}`}))`;
+    const walletHash = sha256(wallet.toLowerCase());
+    await sql`select pg_advisory_xact_lock(hashtext(${`winner-wallet:${walletHash}`}))`;
     const sameWallet = win.wallet_address?.toLowerCase() === wallet.toLowerCase();
     if (win.wallet_address) {
       if (!sameWallet && !settings.allowWalletChanges) {
@@ -478,24 +505,34 @@ async function changeWinWallet(user: SpinUser, winId: string, walletValue: strin
     if (duplicate[0]) {
       throw new HttpError(409, "That wallet is already attached to another win.", "WALLET_ALREADY_USED");
     }
+    const registered = await sql<{ first_win_id: string }[]>`
+      select first_win_id from spin_wallet_registry
+      where wallet_hash = ${walletHash}
+      limit 1
+    `;
+    if (registered[0] && registered[0].first_win_id !== win.id) {
+      throw new HttpError(409, "That wallet has already been used for another win.", "WALLET_ALREADY_USED");
+    }
+    await sql`
+      insert into spin_wallet_registry (wallet_hash, first_win_id, first_user_id)
+      values (${walletHash}, ${win.id}::uuid, ${user.id}::uuid)
+      on conflict (wallet_hash) do nothing
+    `;
     const updated = await sql<{ wallet_address: string; wallet_submitted_at: Date | string }[]>`
       update spin_wins
       set wallet_address = ${wallet}, wallet_submitted_at = now()
       where id = ${win.id}::uuid
       returning wallet_address, wallet_submitted_at
     `;
-    await queueSheetSync(sql, "spin_win", `win:${win.id}`, {
-      winId: win.id,
-      userId: user.id,
-      xUserId: user.xUserId,
-      xUsername: user.xUsername,
-      xName: user.xName,
-      prizeType: win.prize_type,
-      wonAt: new Date(win.won_at).toISOString(),
-      wallet: updated[0].wallet_address,
-      walletSubmittedAt: new Date(updated[0].wallet_submitted_at).toISOString(),
-      walletChangeAllowed: settings.allowWalletChanges,
-    });
+    if (!sameWallet) {
+      await sql`
+        insert into spin_wallet_history (win_id, user_id, action, wallet_hash)
+        values (
+          ${win.id}::uuid, ${user.id}::uuid,
+          ${win.wallet_address ? "replaced" : "submitted"}, ${walletHash}
+        )
+      `;
+    }
     return {
       wallet: updated[0].wallet_address,
       alreadySubmitted: Boolean(sameWallet),
@@ -514,13 +551,15 @@ export async function removeWinWallet(user: SpinUser, winId: string) {
 }
 
 export async function getWheelState(user: SpinUser | null) {
+  await ensureProductionSchema();
   if (user) await settleMaturedCampaignTasks(user);
   const sql = getDb();
   const campaign = await getActiveCampaign(sql);
   const prizeCampaign = await getLatestPrizeCampaign(sql);
   const settings = await getSpinSettings(sql);
   const communityRows = await sql<{ connected_users: number }[]>`
-    select count(distinct x_user_id)::int as connected_users from spin_users
+    select coalesce(sum(connected_users), 0)::bigint as connected_users
+    from spin_connected_user_counters
   `;
   const community = { connectedUsers: Number(communityRows[0]?.connected_users ?? 0) };
 
@@ -535,7 +574,7 @@ export async function getWheelState(user: SpinUser | null) {
     };
   }
   const currentUsers = await sql<SpinUserRow[]>`
-    select id, x_user_id, x_username, x_name, spins_available, spins_used, points, total_wins,
+    select id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, total_wins,
       referral_code, referral_count, referral_spins_earned
     from spin_users where id = ${user.id}::uuid limit 1
   `;
@@ -552,25 +591,14 @@ export async function getWheelState(user: SpinUser | null) {
   }
   current.referral_code = await ensureReferralCode(sql, current);
 
-  const claims = campaign ? await sql<{ task_type: TaskType }[]>`
-    select task_type from spin_task_claims
-    where user_id = ${user.id}::uuid and round_id = ${campaign.round_id}::uuid
-  ` : [];
+  const progress = campaign
+    ? await getRoundProgress(sql, user.id, campaign.id, campaign.round_number)
+    : { claimedTasks: [] as TaskType[], codeAwardedSpins: null as number | null };
   const taskStarts = campaign ? await sql<{ task_type: TaskType; ready_at: Date | string }[]>`
     select task_type, started_at + interval '5 seconds' as ready_at
     from spin_task_starts starts
     where user_id = ${user.id}::uuid
       and round_id = ${campaign.round_id}::uuid
-      and not exists (
-        select 1 from spin_task_claims claims
-        where claims.user_id = starts.user_id
-          and claims.round_id = starts.round_id
-          and claims.task_type = starts.task_type
-      )
-  ` : [];
-  const redemptions = campaign ? await sql<{ awarded_spins: number }[]>`
-    select awarded_spins from spin_code_redemptions
-    where user_id = ${user.id}::uuid and round_id = ${campaign.round_id}::uuid limit 1
   ` : [];
   const wins = await sql<{
     id: string;
@@ -594,6 +622,7 @@ export async function getWheelState(user: SpinUser | null) {
       xUserId: current.x_user_id,
       xUsername: current.x_username,
       xName: current.x_name,
+      spinsEarned: Number(current.spins_earned),
       spinsAvailable: Number(current.spins_available),
       spinsUsed: Number(current.spins_used),
       points: Number(current.points),
@@ -610,12 +639,14 @@ export async function getWheelState(user: SpinUser | null) {
     wheelAvailable: Boolean(prizeCampaign),
     walletChangesAllowed: settings.allowWalletChanges,
     walletSubmissionsAllowed: settings.allowWalletSubmissions,
-    claimedTasks: claims.map((claim) => claim.task_type),
-    taskStarts: taskStarts.map((start) => ({
+    claimedTasks: progress.claimedTasks,
+    taskStarts: taskStarts.filter((start) => !progress.claimedTasks.includes(start.task_type)).map((start) => ({
       taskType: start.task_type,
       readyAt: new Date(start.ready_at).toISOString(),
     })),
-    codeRedemption: redemptions[0] ? { awardedSpins: Number(redemptions[0].awarded_spins) } : null,
+    codeRedemption: progress.codeAwardedSpins === null
+      ? null
+      : { awardedSpins: progress.codeAwardedSpins },
     wins: wins.map((win) => ({
       id: win.id,
       prizeType: win.prize_type,
@@ -635,40 +666,4 @@ function publicCampaign(campaign: CampaignRow | null) {
     startsAt: new Date(campaign.starts_at).toISOString(),
     endsAt: new Date(campaign.ends_at).toISOString(),
   } : null;
-}
-
-export async function getAdminDashboard() {
-  const sql = getDb();
-  const campaign = await getActiveCampaign(sql);
-  const settings = await getSpinSettings(sql);
-  const [totals, inventory, outbox] = await Promise.all([
-    sql<{ users: number; spins: number; wins: number; pending_wallets: number; referrals: number }[]>`
-      select
-        (select count(distinct x_user_id)::int from spin_users) as users,
-        (select coalesce(sum(spins_used), 0)::int from spin_users) as spins,
-        (select count(*)::int from spin_wins) as wins,
-        (select count(*)::int from spin_wins where wallet_address is null) as pending_wallets,
-        (select count(*)::int from spin_referrals) as referrals
-    `,
-    campaign ? sql<{ prize_type: PrizeType; claimed: number; total: number }[]>`
-      select prize_type, awarded_count::int as claimed, total_count::int as total
-      from spin_campaign_prizes
-      where campaign_id = ${campaign.id}::uuid
-      order by case prize_type when 'GTD' then 1 when 'FCFS1' then 2 else 3 end
-    ` : Promise.resolve([]),
-    sql<{ pending: number }[]>`
-      select count(*)::int as pending from spin_sheet_outbox where delivered_at is null
-    `,
-  ]);
-  return {
-    campaign: campaign ? {
-      ...publicCampaign(campaign),
-      expectedUsers: Number(campaign.expected_users),
-      expectedSpinsPerUser: Number(campaign.expected_spins_per_user),
-    } : null,
-    totals: totals[0],
-    inventory,
-    sheetSyncPending: Number(outbox[0]?.pending ?? 0),
-    settings,
-  };
 }

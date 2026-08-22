@@ -3,12 +3,16 @@ import type { SpinUser } from "./auth";
 import type { SpinDb } from "./db";
 import { getDb, inTransaction } from "./db";
 import { HttpError } from "./http";
+import {
+  hasTaskReward,
+  markTaskReward,
+  type CompactTaskType,
+} from "./progress";
 import { enforceRateLimit } from "./rate-limit";
 import { hashRedeemCode } from "./security";
-import { queueSheetSync } from "./sheets";
-import { spinUserSheetPayload, type SpinUserRow } from "./users";
+import type { SpinUserRow } from "./users";
 
-export type TaskType = "like" | "repost" | "comment";
+export type TaskType = CompactTaskType;
 
 export type CampaignRow = {
   id: string;
@@ -22,6 +26,7 @@ export type CampaignRow = {
   ends_at: Date | string;
   expected_users: number;
   expected_spins_per_user: number;
+  spins_processed: number;
   created_at: Date | string;
 };
 
@@ -42,7 +47,13 @@ export async function getActiveCampaign(sql: SpinDb = getDb()) {
     select campaigns.id, rounds.id as round_id, rounds.round_number,
       rounds.title, rounds.tweet_id, rounds.tweet_url, rounds.code_hash,
       campaigns.starts_at, campaigns.ends_at, campaigns.expected_users,
-      campaigns.expected_spins_per_user, campaigns.created_at
+      campaigns.expected_spins_per_user,
+      coalesce((
+        select sum(counters.spins_processed)::bigint
+        from spin_campaign_counters counters
+        where counters.campaign_id = campaigns.id
+      ), campaigns.spins_processed, 0)::bigint as spins_processed,
+      campaigns.created_at
     from spin_campaigns campaigns
     join spin_campaign_rounds rounds
       on rounds.campaign_id = campaigns.id and rounds.active = true
@@ -61,7 +72,13 @@ export async function getLatestPrizeCampaign(sql: SpinDb = getDb()) {
     select campaigns.id, rounds.id as round_id, rounds.round_number,
       rounds.title, rounds.tweet_id, rounds.tweet_url, rounds.code_hash,
       campaigns.starts_at, campaigns.ends_at, campaigns.expected_users,
-      campaigns.expected_spins_per_user, campaigns.created_at
+      campaigns.expected_spins_per_user,
+      coalesce((
+        select sum(counters.spins_processed)::bigint
+        from spin_campaign_counters counters
+        where counters.campaign_id = campaigns.id
+      ), campaigns.spins_processed, 0)::bigint as spins_processed,
+      campaigns.created_at
     from spin_campaigns campaigns
     join lateral (
       select id, round_number, title, tweet_id, tweet_url, code_hash
@@ -87,12 +104,7 @@ export async function startCampaignTask(user: SpinUser, task: TaskType) {
   const campaign = await getActiveCampaign(sql);
   if (!campaign) throw new HttpError(404, "No campaign is active right now.", "NO_CAMPAIGN");
 
-  const existing = await sql<{ id: string }[]>`
-    select id from spin_task_claims
-    where user_id = ${user.id}::uuid and round_id = ${campaign.round_id}::uuid and task_type = ${task}
-    limit 1
-  `;
-  if (existing[0]) {
+  if (await hasTaskReward(sql, user.id, campaign.id, campaign.round_number, task)) {
     return {
       task,
       alreadyClaimed: true,
@@ -160,12 +172,9 @@ export async function claimCampaignTask(user: SpinUser, task: TaskType) {
       throw new HttpError(409, "The campaign changed. Refresh and open the new tasks.", "CAMPAIGN_CHANGED");
     }
     await transaction`select id from spin_users where id = ${user.id}::uuid for update`;
-    const existing = await transaction<{ id: string }[]>`
-      select id from spin_task_claims
-      where user_id = ${user.id}::uuid and round_id = ${campaign.round_id}::uuid and task_type = ${task}
-      limit 1
-    `;
-    if (existing[0]) return { task, alreadyClaimed: true, spinsAwarded: 0 };
+    if (await hasTaskReward(transaction, user.id, campaign.id, campaign.round_number, task)) {
+      return { task, alreadyClaimed: true, spinsAwarded: 0 };
+    }
 
     const starts = await transaction<TaskStartRow[]>`
       select started_at,
@@ -186,24 +195,31 @@ export async function claimCampaignTask(user: SpinUser, task: TaskType) {
       throw new HttpError(409, "Please wait for the five-second task timer to finish.", "TASK_TIMER_ACTIVE");
     }
 
-    const inserted = await transaction<{ id: string }[]>`
-      insert into spin_task_claims (id, user_id, campaign_id, round_id, task_type, awarded_spins)
-      values (${randomUUID()}, ${user.id}::uuid, ${campaign.id}::uuid, ${campaign.round_id}::uuid, ${task}, 1)
-      on conflict (user_id, round_id, task_type) do nothing
-      returning id
+    const inserted = await markTaskReward(
+      transaction,
+      user.id,
+      campaign.id,
+      campaign.round_number,
+      task,
+    );
+    await transaction`
+      delete from spin_task_starts
+      where user_id = ${user.id}::uuid
+        and round_id = ${campaign.round_id}::uuid
+        and task_type = ${task}
     `;
-    if (!inserted[0]) return { task, alreadyClaimed: true, spinsAwarded: 0 };
+    if (!inserted) return { task, alreadyClaimed: true, spinsAwarded: 0 };
 
     const updated = await transaction<SpinUserRow[]>`
       update spin_users
       set spins_available = spins_available + 1,
+          spins_earned = spins_earned + 1,
           points = points + 1,
           updated_at = now()
       where id = ${user.id}::uuid
-      returning id, x_user_id, x_username, x_name, spins_available, spins_used, points, total_wins,
+      returning id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, total_wins,
         referral_code, referral_count, referral_spins_earned
     `;
-    await queueSheetSync(transaction, "spin_user", `user:${user.id}`, spinUserSheetPayload(updated[0]));
     return {
       task,
       alreadyClaimed: false,
@@ -227,36 +243,35 @@ export async function settleMaturedCampaignTasks(user: SpinUser) {
       where starts.user_id = ${user.id}::uuid
         and starts.round_id = ${campaign.round_id}::uuid
         and starts.started_at <= now() - interval '5 seconds'
-        and not exists (
-          select 1 from spin_task_claims claims
-          where claims.user_id = starts.user_id
-            and claims.round_id = starts.round_id
-            and claims.task_type = starts.task_type
-        )
       for update
     `;
     const awarded: TaskType[] = [];
     for (const row of matured) {
-      const inserted = await sql<{ task_type: TaskType }[]>`
-        insert into spin_task_claims (id, user_id, campaign_id, round_id, task_type, awarded_spins)
-        values (${randomUUID()}, ${user.id}::uuid, ${campaign.id}::uuid, ${campaign.round_id}::uuid, ${row.task_type}, 1)
-        on conflict (user_id, round_id, task_type) do nothing
-        returning task_type
+      const inserted = await markTaskReward(
+        sql,
+        user.id,
+        campaign.id,
+        campaign.round_number,
+        row.task_type,
+      );
+      await sql`
+        delete from spin_task_starts
+        where user_id = ${user.id}::uuid
+          and round_id = ${campaign.round_id}::uuid
+          and task_type = ${row.task_type}
       `;
-      if (inserted[0]) awarded.push(inserted[0].task_type);
+      if (inserted) awarded.push(row.task_type);
     }
     if (!awarded.length) return awarded;
 
-    const updated = await sql<SpinUserRow[]>`
+    await sql`
       update spin_users
       set spins_available = spins_available + ${awarded.length},
+          spins_earned = spins_earned + ${awarded.length},
           points = points + ${awarded.length},
           updated_at = now()
       where id = ${user.id}::uuid
-      returning id, x_user_id, x_username, x_name, spins_available, spins_used, points, total_wins,
-        referral_code, referral_count, referral_spins_earned
     `;
-    await queueSheetSync(sql, "spin_user", `user:${user.id}`, spinUserSheetPayload(updated[0]));
     return awarded;
   });
 }

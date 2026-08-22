@@ -2,13 +2,13 @@ import { randomUUID } from "node:crypto";
 import type { SpinDb } from "./db";
 import { inTransaction } from "./db";
 import { HttpError } from "./http";
-import { queueSheetSync } from "./sheets";
 
 export type SpinUserRow = {
   id: string;
   x_user_id: string;
   x_username: string;
   x_name: string;
+  spins_earned: number;
   spins_available: number;
   spins_used: number;
   points: number;
@@ -46,23 +46,6 @@ function defaultReferralCandidates(user: Pick<SpinUserRow, "x_user_id" | "x_user
     `${primary.slice(0, Math.max(3, 23 - suffix.length))}_${suffix}`,
     `hood_${suffix}`,
   ].filter((candidate, index, candidates) => validReferralCode(candidate) && candidates.indexOf(candidate) === index);
-}
-
-export function spinUserSheetPayload(user: SpinUserRow) {
-  return {
-    userId: user.id,
-    xUserId: user.x_user_id,
-    xUsername: user.x_username,
-    xName: user.x_name,
-    spinsAvailable: Number(user.spins_available),
-    spinsUsed: Number(user.spins_used),
-    points: Number(user.points),
-    totalWins: Number(user.total_wins),
-    referralCode: user.referral_code ?? "",
-    referralCount: Number(user.referral_count),
-    referralSpinsEarned: Number(user.referral_spins_earned),
-    updatedAt: new Date().toISOString(),
-  };
 }
 
 export async function ensureReferralCode(sql: SpinDb, user: SpinUserRow) {
@@ -111,7 +94,7 @@ export async function customizeReferralCode(userId: string, rawCode: string) {
   return inTransaction(async (sql) => {
     await sql`select pg_advisory_xact_lock(hashtext(${`referral-code:${code}`}))`;
     const users = await sql<SpinUserRow[]>`
-      select id, x_user_id, x_username, x_name, spins_available, spins_used, points, total_wins,
+      select id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, total_wins,
         referral_code, referral_count, referral_spins_earned
       from spin_users where id = ${userId}::uuid limit 1 for update
     `;
@@ -131,10 +114,9 @@ export async function customizeReferralCode(userId: string, rawCode: string) {
     const updated = await sql<SpinUserRow[]>`
       update spin_users set referral_code = ${code}, updated_at = now()
       where id = ${userId}::uuid
-      returning id, x_user_id, x_username, x_name, spins_available, spins_used, points, total_wins,
+      returning id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, total_wins,
         referral_code, referral_count, referral_spins_earned
     `;
-    await queueSheetSync(sql, "spin_user", `user:${userId}`, spinUserSheetPayload(updated[0]));
     return {
       referralCode: updated[0].referral_code,
       referralCount: Number(updated[0].referral_count),
@@ -154,7 +136,7 @@ export async function applyNewUserReferral(
   await sql`select pg_advisory_xact_lock(hashtext(${`referral-credit:${referredUser.id}`}))`;
   const referrers = await sql<SpinUserRow[]>`
     select users.id, users.x_user_id, users.x_username, users.x_name,
-      users.spins_available, users.spins_used, users.points, users.total_wins,
+      users.spins_earned, users.spins_available, users.spins_used, users.points, users.total_wins,
       users.referral_code, users.referral_count, users.referral_spins_earned
     from spin_referral_codes codes
     join spin_users users on users.id = codes.user_id
@@ -177,28 +159,14 @@ export async function applyNewUserReferral(
   `;
   if (!inserted[0]) return false;
 
-  const updated = await sql<SpinUserRow[]>`
+  await sql`
     update spin_users
     set spins_available = spins_available + 3,
+        spins_earned = spins_earned + 3,
         referral_count = referral_count + 1,
         referral_spins_earned = referral_spins_earned + 3,
         updated_at = now()
     where id = ${referrer.id}::uuid
-    returning id, x_user_id, x_username, x_name, spins_available, spins_used, points, total_wins,
-      referral_code, referral_count, referral_spins_earned
   `;
-  await queueSheetSync(sql, "spin_user", `user:${referrer.id}`, spinUserSheetPayload(updated[0]));
-  await queueSheetSync(sql, "spin_referral", `referral:${referralId}`, {
-    referralId,
-    referrerUserId: referrer.id,
-    referrerXUserId: referrer.x_user_id,
-    referrerUsername: referrer.x_username,
-    referredUserId: referredUser.id,
-    referredXUserId: referredUser.x_user_id,
-    referredUsername: referredUser.x_username,
-    referralCode: code,
-    awardedSpins: 3,
-    createdAt: new Date(inserted[0].created_at).toISOString(),
-  });
   return true;
 }

@@ -1,10 +1,7 @@
 import { requireSpinAdmin } from "@/lib/spin/admin";
+import { recordAdminAction } from "@/lib/spin/audit";
 import { assertSameOrigin, json, routeError } from "@/lib/spin/http";
-import {
-  flushSheetOutbox,
-  getPendingSheetSyncCount,
-  queueFullSheetBackfill,
-} from "@/lib/spin/sheets";
+import { runSpinMaintenance } from "@/lib/spin/maintenance";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,10 +11,9 @@ export async function POST(request: Request) {
   try {
     assertSameOrigin(request);
     requireSpinAdmin(request);
-    const backfill = await queueFullSheetBackfill();
-    const delivery = await flushSheetOutbox(20);
-    const pendingAfter = await getPendingSheetSyncCount();
-    return json({ backfill, ...delivery, pendingAfter });
+    const result = await runSpinMaintenance();
+    await recordAdminAction("manual_storage_maintenance", result);
+    return json({ ok: true, result });
   } catch (error) {
     return routeError(error);
   }

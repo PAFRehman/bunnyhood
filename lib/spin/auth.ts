@@ -6,6 +6,7 @@ import {
 } from "./config";
 import { getDb } from "./db";
 import { getCookie, HttpError, secureCookie } from "./http";
+import { ensureProductionSchema } from "./schema";
 import { randomToken, safeEqual, sha256 } from "./security";
 
 export type SpinUser = {
@@ -14,6 +15,7 @@ export type SpinUser = {
   xUsername: string;
   xName: string;
   xProfileImageUrl: string | null;
+  spinsEarned: number;
   spinsAvailable: number;
   spinsUsed: number;
   points: number;
@@ -28,6 +30,7 @@ type SessionRow = {
   x_username: string;
   x_name: string;
   x_profile_image_url: string | null;
+  spins_earned: number;
   spins_available: number;
   spins_used: number;
   points: number;
@@ -41,6 +44,7 @@ function mapUser(row: SessionRow): SpinUser {
     xUsername: row.x_username,
     xName: row.x_name,
     xProfileImageUrl: row.x_profile_image_url,
+    spinsEarned: Number(row.spins_earned),
     spinsAvailable: Number(row.spins_available),
     spinsUsed: Number(row.spins_used),
     points: Number(row.points),
@@ -49,6 +53,7 @@ function mapUser(row: SessionRow): SpinUser {
 }
 
 export async function getSessionUser(request: Request, requireCsrf = false) {
+  await ensureProductionSchema();
   const token = getCookie(request, SPIN_COOKIE);
   if (!token) return null;
   const sql = getDb();
@@ -61,6 +66,7 @@ export async function getSessionUser(request: Request, requireCsrf = false) {
       u.x_username,
       u.x_name,
       u.x_profile_image_url,
+      u.spins_earned,
       u.spins_available,
       u.spins_used,
       u.points,
@@ -73,6 +79,13 @@ export async function getSessionUser(request: Request, requireCsrf = false) {
   `;
   const row = rows[0];
   if (!row) return null;
+
+  await sql`
+    update spin_users
+    set last_seen_at = now()
+    where id = ${row.user_id}::uuid
+      and last_seen_at < now() - interval '5 minutes'
+  `;
 
   if (requireCsrf) {
     const header = request.headers.get("x-csrf-token") ?? "";
@@ -136,4 +149,3 @@ export function clearedSessionCookies() {
     secureCookie(CSRF_COOKIE, "", { maxAge: 0, httpOnly: false, sameSite: "Lax" }),
   ];
 }
-

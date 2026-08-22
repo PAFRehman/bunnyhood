@@ -17,6 +17,7 @@ type WheelState = {
     xUserId: string;
     xUsername: string;
     xName: string;
+    spinsEarned: number;
     spinsAvailable: number;
     spinsUsed: number;
     points: number;
@@ -142,14 +143,12 @@ function WalletForm({
     setBusy(true);
     setMessage("");
     try {
-      const result = await requestJson<{ sheetSynced: boolean }>(`/api/spin/wins/${winId}/wallet`, {
+      await requestJson<{ stored: boolean }>(`/api/spin/wins/${winId}/wallet`, {
         method: "POST",
         body: JSON.stringify({ wallet }),
       });
       setWallet("");
-      await onSaved(result.sheetSynced
-        ? "Wallet saved and updated in Google Sheets."
-        : "Wallet saved securely. Google Sheets will retry automatically.");
+      await onSaved("Wallet saved securely in Bunny Hood records.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Wallet could not be saved.");
     } finally {
@@ -162,12 +161,10 @@ function WalletForm({
     setBusy(true);
     setMessage("");
     try {
-      const result = await requestJson<{ sheetSynced: boolean }>(`/api/spin/wins/${winId}/wallet`, {
+      await requestJson<{ stored: boolean }>(`/api/spin/wins/${winId}/wallet`, {
         method: "DELETE",
       });
-      await onSaved(result.sheetSynced
-        ? "Wallet removed from your win and Google Sheets."
-        : "Wallet removed securely. Google Sheets will retry automatically.");
+      await onSaved("Wallet removed from the win. Its private anti-reuse record remains protected.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Wallet could not be removed.");
     } finally {
@@ -540,6 +537,7 @@ export function SpinWheelApp() {
             <div className="profile-bar">
               <div><span>CONNECTED AS</span><strong>@{state.user.xUsername}</strong></div>
               <div><span>SPINS LEFT</span><strong>{state.user.spinsAvailable}</strong></div>
+              <div><span>LIFETIME EARNED</span><strong>{state.user.spinsEarned}</strong></div>
               <div><span>POINTS</span><strong>{state.user.points}</strong></div>
               <div><span>WINS</span><strong>{state.user.totalWins}/9</strong></div>
               <div><span>CONNECTED USERS</span><strong>{state.community.connectedUsers}</strong></div>

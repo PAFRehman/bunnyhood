@@ -1,4 +1,5 @@
 import { requireSpinAdmin } from "@/lib/spin/admin";
+import { recordAdminAction } from "@/lib/spin/audit";
 import { publishCampaign } from "@/lib/spin/campaigns";
 import { assertSameOrigin, json, readJson, routeError } from "@/lib/spin/http";
 
@@ -29,6 +30,11 @@ export async function POST(request: Request) {
       gtdCount: body.gtdCount,
       fcfs1Count: body.fcfs1Count,
       fcfs2Count: body.fcfs2Count,
+      startNewCampaign: Boolean(body.startNewCampaign),
+    });
+    await recordAdminAction("campaign_published", {
+      campaignId: campaign.id,
+      roundNumber: Number(campaign.round_number),
       startNewCampaign: Boolean(body.startNewCampaign),
     });
     return json({ campaign }, 201);

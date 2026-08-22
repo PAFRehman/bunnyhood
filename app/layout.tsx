@@ -3,10 +3,10 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Bunny Hood — 3999 Bunnys on Robinhood Chain",
-  description: "Enter Bunny Hood, complete the X mission, and join 3999 Bunnys on Robinhood Chain.",
+  description: "3999 AI Agent Bunnys building utility, rewards, and experiments on Robinhood Chain.",
   openGraph: {
     title: "Bunny Hood",
-    description: "3999 Bunnys on Robinhood Chain.",
+    description: "3999 AI Agent Bunnys on Robinhood Chain.",
     type: "website",
   },
   icons: {
