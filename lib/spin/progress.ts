@@ -8,14 +8,16 @@ const TASK_INDEX: Record<CompactTaskType, number> = {
   comment: 2,
 };
 
-function roundBit(roundNumber: number, offset = 0) {
+function roundBit(rawRoundNumber: number, offset = 0) {
+  const roundNumber = Number(rawRoundNumber);
   if (!Number.isInteger(roundNumber) || roundNumber < 1 || roundNumber > 20) {
     throw new Error("Campaign round must be between 1 and 20.");
   }
   return (BigInt(1) << BigInt((roundNumber - 1) * 3 + offset)).toString();
 }
 
-export function codeProgressBit(roundNumber: number) {
+export function codeProgressBit(rawRoundNumber: number) {
+  const roundNumber = Number(rawRoundNumber);
   if (!Number.isInteger(roundNumber) || roundNumber < 1 || roundNumber > 20) {
     throw new Error("Campaign round must be between 1 and 20.");
   }
@@ -96,33 +98,24 @@ export async function markCodeReward(
 ) {
   const bit = codeProgressBit(roundNumber);
   const awardByRound = JSON.stringify({ [String(roundNumber)]: awardedSpins });
-  const inserted = await sql<{ recorded: boolean }[]>`
+  const rows = await sql<{ inserted: boolean }[]>`
     insert into spin_user_campaign_progress (
       user_id, campaign_id, code_redeemed_bits,
       code_redemptions, code_spins_earned, code_spin_awards
     ) values (
-      ${userId}::uuid, ${campaignId}::uuid, ${bit}::bigint,
-      1, ${awardedSpins}::integer,
+      ${userId}::uuid, ${campaignId}::uuid, ${bit}::bigint, 1, ${awardedSpins},
       ${awardByRound}::jsonb
     )
-    on conflict (user_id, campaign_id) do nothing
-    returning true as recorded
-  `;
-  if (inserted[0]?.recorded) return true;
-
-  const updated = await sql<{ recorded: boolean }[]>`
-    update spin_user_campaign_progress
-    set code_redeemed_bits = code_redeemed_bits | ${bit}::bigint,
-      code_redemptions = code_redemptions + 1,
-      code_spins_earned = code_spins_earned + ${awardedSpins}::integer,
-      code_spin_awards = coalesce(code_spin_awards, '{}'::jsonb) || ${awardByRound}::jsonb,
+    on conflict (user_id, campaign_id) do update set
+      code_redeemed_bits = spin_user_campaign_progress.code_redeemed_bits | excluded.code_redeemed_bits,
+      code_redemptions = spin_user_campaign_progress.code_redemptions + 1,
+      code_spins_earned = spin_user_campaign_progress.code_spins_earned + excluded.code_spins_earned,
+      code_spin_awards = spin_user_campaign_progress.code_spin_awards || excluded.code_spin_awards,
       updated_at = now()
-    where user_id = ${userId}::uuid
-      and campaign_id = ${campaignId}::uuid
-      and (code_redeemed_bits & ${bit}::bigint) = 0
-    returning true as recorded
+    where (spin_user_campaign_progress.code_redeemed_bits & excluded.code_redeemed_bits) = 0
+    returning true as inserted
   `;
-  return Boolean(updated[0]?.recorded);
+  return Boolean(rows[0]?.inserted);
 }
 
 export async function getRoundProgress(
@@ -163,3 +156,4 @@ export async function getRoundProgress(
     ].filter(Boolean) as CompactTaskType[]),
     codeAwardedSpins: row?.code_redeemed ? Number(row.awarded_spins) : null,
   };
+}
