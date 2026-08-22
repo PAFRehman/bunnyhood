@@ -95,13 +95,14 @@ export async function markCodeReward(
   awardedSpins: number,
 ) {
   const bit = codeProgressBit(roundNumber);
+  const awardByRound = JSON.stringify({ [String(roundNumber)]: awardedSpins });
   const rows = await sql<{ inserted: boolean }[]>`
     insert into spin_user_campaign_progress (
       user_id, campaign_id, code_redeemed_bits,
       code_redemptions, code_spins_earned, code_spin_awards
     ) values (
       ${userId}::uuid, ${campaignId}::uuid, ${bit}::bigint, 1, ${awardedSpins},
-      jsonb_build_object(${String(roundNumber)}, ${awardedSpins})
+      ${awardByRound}::jsonb
     )
     on conflict (user_id, campaign_id) do update set
       code_redeemed_bits = spin_user_campaign_progress.code_redeemed_bits | excluded.code_redeemed_bits,

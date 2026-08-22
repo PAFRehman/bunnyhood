@@ -33,6 +33,7 @@ export type CampaignRow = {
 type TaskStartRow = {
   started_at: Date | string;
   ready_at: Date | string;
+  wait_ms: number;
   ready?: boolean;
 };
 
@@ -130,10 +131,16 @@ export async function startCampaignTask(user: SpinUser, task: TaskType) {
       insert into spin_task_starts (id, user_id, campaign_id, round_id, task_type)
       values (${randomUUID()}, ${user.id}::uuid, ${campaign.id}::uuid, ${campaign.round_id}::uuid, ${task})
       on conflict (user_id, round_id, task_type) do nothing
-      returning started_at, started_at + interval '5 seconds' as ready_at
+      returning started_at, started_at + interval '5 seconds' as ready_at,
+        greatest(0, ceil(extract(epoch from (
+          (started_at + interval '5 seconds') - clock_timestamp()
+        )) * 1000))::int as wait_ms
     `;
     const starts = inserted[0] ? inserted : await transaction<TaskStartRow[]>`
-      select started_at, started_at + interval '5 seconds' as ready_at
+      select started_at, started_at + interval '5 seconds' as ready_at,
+        greatest(0, ceil(extract(epoch from (
+          (started_at + interval '5 seconds') - clock_timestamp()
+        )) * 1000))::int as wait_ms
       from spin_task_starts
       where user_id = ${user.id}::uuid
         and round_id = ${campaign.round_id}::uuid
@@ -148,6 +155,7 @@ export async function startCampaignTask(user: SpinUser, task: TaskType) {
       tweetUrl: campaign.tweet_url,
       startedAt: new Date(start.started_at).toISOString(),
       readyAt: new Date(start.ready_at).toISOString(),
+      waitMs: Number(start.wait_ms),
     };
   });
 }
@@ -306,9 +314,6 @@ export async function publishCampaign(input: {
   const gtdCount = integerInRange(input.gtdCount, 15, 1, 100_000);
   const fcfs1Count = integerInRange(input.fcfs1Count, 20, 1, 100_000);
   const fcfs2Count = integerInRange(input.fcfs2Count, 30, 1, 100_000);
-  if (gtdCount >= fcfs1Count || gtdCount >= fcfs2Count) {
-    throw new HttpError(400, "GTD must be lower than both FCFS prize totals.", "GTD_NOT_RAREST");
-  }
   const end = input.endsAt ? new Date(input.endsAt) : new Date(Date.now() + 20 * 24 * 60 * 60 * 1000);
   if (!Number.isFinite(end.getTime()) || end.getTime() <= Date.now() + 5 * 60_000) {
     throw new HttpError(400, "Campaign end time must be at least five minutes from now.", "BAD_END_TIME");

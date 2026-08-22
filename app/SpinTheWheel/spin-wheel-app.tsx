@@ -40,7 +40,7 @@ type WheelState = {
     endsAt: string;
   };
   claimedTasks?: TaskType[];
-  taskStarts?: Array<{ taskType: TaskType; readyAt: string }>;
+  taskStarts?: Array<{ taskType: TaskType; readyAt: string; waitMs: number }>;
   codeRedemption?: null | { awardedSpins: number };
   wins?: Array<{
     id: string;
@@ -80,6 +80,16 @@ type SpinBatchResponse = {
 
 type ApiError = { error?: string; code?: string };
 
+class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly code?: string,
+    public readonly status?: number,
+  ) {
+    super(message);
+  }
+}
+
 const TASKS: Array<{ id: TaskType; action: string; eyebrow: string; title: string; copy: string }> = [
   { id: "like", action: "Like", eyebrow: "01 · SUPPORT", title: "Like the post", copy: "Open the post and like it properly on X. Your +1 spin and +1 point are added automatically after five seconds." },
   { id: "repost", action: "Retweet", eyebrow: "02 · SHARE", title: "Retweet the post", copy: "Open the post and retweet it on X. Your +1 spin and +1 point are added automatically after five seconds." },
@@ -117,7 +127,13 @@ async function requestJson<T>(url: string, init?: RequestInit) {
   }
   const response = await fetch(url, { ...init, headers, cache: "no-store" });
   const data = await response.json().catch(() => ({})) as T & ApiError;
-  if (!response.ok) throw new Error(data.error || "The request could not be completed.");
+  if (!response.ok) {
+    throw new ApiRequestError(
+      data.error || "The request could not be completed.",
+      data.code,
+      response.status,
+    );
+  }
   return data;
 }
 
@@ -288,10 +304,21 @@ export function SpinWheelApp() {
     clearTaskTimer(task);
     setTaskWorking((current) => ({ ...current, [task]: true }));
     try {
-      await requestJson("/api/spin/tasks/claim", {
-        method: "POST",
-        body: JSON.stringify({ task }),
-      });
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        try {
+          await requestJson("/api/spin/tasks/claim", {
+            method: "POST",
+            body: JSON.stringify({ task }),
+          });
+          break;
+        } catch (error) {
+          if (error instanceof ApiRequestError && error.code === "TASK_TIMER_ACTIVE" && attempt < 5) {
+            await new Promise<void>((resolve) => window.setTimeout(resolve, 500));
+            continue;
+          }
+          throw error;
+        }
+      }
       const action = TASKS.find((item) => item.id === task)?.action ?? "Task";
       setMessage(`${action} completed. +1 spin and +1 point were added automatically.`);
       await loadState();
@@ -302,18 +329,24 @@ export function SpinWheelApp() {
     }
   }, [clearTaskTimer, loadState]);
 
-  const scheduleTaskRecovery = useCallback((task: TaskType, readyAt: string) => {
+  const scheduleTaskRecovery = useCallback((task: TaskType, readyAt: string, serverWaitMs?: number) => {
     if (taskTimers.current[task]) return;
-    const readyTime = new Date(readyAt).getTime();
-    if (!Number.isFinite(readyTime)) return;
+    const parsedReadyTime = new Date(readyAt).getTime();
+    const fallbackWaitMs = Number.isFinite(parsedReadyTime)
+      ? Math.max(0, parsedReadyTime - Date.now())
+      : 5_000;
+    const waitMs = Number.isFinite(serverWaitMs) && Number(serverWaitMs) >= 0
+      ? Number(serverWaitMs)
+      : fallbackWaitMs;
+    const localReadyTime = Date.now() + waitMs;
     const updateCountdown = () => {
-      const seconds = Math.max(0, Math.ceil((readyTime - Date.now()) / 1000));
+      const seconds = Math.max(0, Math.ceil((localReadyTime - Date.now()) / 1000));
       setTaskSeconds((current) => ({ ...current, [task]: seconds }));
     };
     const intervalId = window.setInterval(updateCountdown, 250);
     const claimId = window.setTimeout(
       () => void claimStartedTask(task),
-      Math.max(0, readyTime - Date.now()) + 300,
+      waitMs + 500,
     );
     taskTimers.current[task] = { intervalId, claimId };
     window.setTimeout(updateCountdown, 0);
@@ -321,7 +354,7 @@ export function SpinWheelApp() {
 
   useEffect(() => {
     for (const start of state?.taskStarts ?? []) {
-      if (!claimed.has(start.taskType)) scheduleTaskRecovery(start.taskType, start.readyAt);
+      if (!claimed.has(start.taskType)) scheduleTaskRecovery(start.taskType, start.readyAt, start.waitMs);
     }
   }, [claimed, scheduleTaskRecovery, state?.taskStarts]);
 
@@ -331,7 +364,7 @@ export function SpinWheelApp() {
     setMessage("");
     window.open(state.campaign.tweetUrl, "_blank", "noopener,noreferrer");
     try {
-      const started = await requestJson<{ completed: boolean; alreadyClaimed: boolean; spinsAwarded: number; readyAt: string }>("/api/spin/tasks/start", {
+      const started = await requestJson<{ completed: boolean; alreadyClaimed: boolean; spinsAwarded: number; readyAt: string; waitMs: number }>("/api/spin/tasks/start", {
         method: "POST",
         body: JSON.stringify({ task }),
       });
@@ -339,7 +372,7 @@ export function SpinWheelApp() {
         setMessage("This task was already completed for the current round.");
         await loadState();
       } else {
-        scheduleTaskRecovery(task, started.readyAt);
+        scheduleTaskRecovery(task, started.readyAt, started.waitMs);
         setMessage("Complete the action properly on X. Your reward will be added automatically when the five-second timer ends.");
       }
     } catch (error) {

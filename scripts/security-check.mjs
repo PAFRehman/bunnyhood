@@ -78,6 +78,7 @@ if (!/interval '5 seconds'/.test(campaigns)) failures.push("Five-second task enf
 if (!/startCampaignTask/.test(campaigns) || !/scheduleTaskRecovery/.test(wheelApp) || !/claimCampaignTask/.test(taskClaimRoute)) failures.push("Five-second automatic task completion is missing.");
 if (/claimCampaignTask|await wait/.test(taskStartRoute)) failures.push("Task start blocks instead of returning the visible countdown immediately.");
 if (!/settleMaturedCampaignTasks/.test(`${wheel}\n${campaigns}`)) failures.push("Interrupted automatic task recovery is missing.");
+if (!/wait_ms/.test(campaigns) || !/serverWaitMs/.test(wheelApp) || !/TASK_TIMER_ACTIVE/.test(wheelApp)) failures.push("One-click tasks are not protected from client clock skew or early claim timing.");
 if (/Open once · auto reward|Securing reward/.test(wheelApp) || !/action: "Like"/.test(wheelApp) || !/action: "Retweet"/.test(wheelApp) || !/action: "Comment"/.test(wheelApp)) failures.push("Task buttons do not use the requested direct action labels.");
 if (!/setTimeout\(\(\) => setMessage\(""\), 5_000\)/.test(wheelApp)) failures.push("Five-second task notification dismissal is missing.");
 if (!/bunny-hood-logo\.png/.test(wheelApp)) failures.push("The new Bunny Hood hero logo is missing.");
@@ -85,6 +86,7 @@ if (/liked_tweets|referenced_tweets|tasks\/verify|verifyOnX/.test(`${campaigns}\
 if (/like\.read|offline\.access/.test(xStart)) failures.push("Unneeded X task-verification scopes are still requested.");
 if (!/unique \(user_id, round_id\)/.test(migration)) failures.push("Per-round code redemption uniqueness is missing.");
 if (!/randomInt\(10, 21\)/.test(wheel)) failures.push("Secure 10–20 code-spin allocation is missing.");
+if (!/awardByRound/.test(progress) || !/\$\{awardByRound\}::jsonb/.test(progress) || /jsonb_build_object\(\$\{String\(roundNumber\)\}/.test(progress)) failures.push("Redeem-code JSON persistence can fail PostgreSQL parameter inference.");
 if (!/create table if not exists spin_campaign_prizes/.test(migration)) failures.push("Private campaign prize inventory is missing.");
 if (!/expected_users integer not null default 500/.test(migration)) failures.push("Five-hundred-user campaign pacing is missing.");
 if (!/expected_spins_per_user integer not null default 360/.test(migration) || !/\$\{expectedUsers\}, 360, 2/.test(campaigns)) failures.push("Twenty-round spin pacing is missing.");
@@ -125,6 +127,7 @@ if (!/export async function DELETE/.test(walletRoute) || !/removeWinWallet/.test
 if (!/xShareUrl\([\s\S]{0,180}referralLink/.test(wheelApp)) failures.push("Referral links are not attached to X shares.");
 if (/GTD LEFT|FCFS1 LEFT|FCFS2 LEFT|Daily prize inventory/.test(wheelApp)) failures.push("Private prize counts are exposed in the public UI.");
 if (!/Total GTD/.test(adminApp) || !/Expected connected users/.test(adminApp)) failures.push("Admin campaign controls are incomplete.");
+if (/GTD_NOT_RAREST|GTD must be lower than both FCFS/.test(campaigns)) failures.push("Admin still forces GTD totals below both FCFS totals.");
 
 if (failures.length) {
   for (const failure of failures) console.error(`FAIL: ${failure}`);

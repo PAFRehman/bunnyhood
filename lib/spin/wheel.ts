@@ -212,7 +212,11 @@ export async function redeemCampaignCode(user: SpinUser, rawCode: string) {
       returning id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, total_wins,
         referral_code, referral_count, referral_spins_earned
     `;
-    return { awardedSpins: awarded, spinsAvailable: Number(updated[0].spins_available) };
+    const updatedUser = updated[0];
+    if (!updatedUser) {
+      throw new HttpError(409, "Your X session changed. Refresh and redeem the code again.", "USER_STATE_CHANGED");
+    }
+    return { awardedSpins: awarded, spinsAvailable: Number(updatedUser.spins_available) };
   });
 }
 
@@ -611,8 +615,11 @@ export async function getWheelState(user: SpinUser | null, knownStorage?: Storag
   const progress = campaign
     ? await getRoundProgress(sql, user.id, campaign.id, campaign.round_number)
     : { claimedTasks: [] as TaskType[], codeAwardedSpins: null as number | null };
-  const taskStarts = campaign ? await sql<{ task_type: TaskType; ready_at: Date | string }[]>`
-    select task_type, started_at + interval '5 seconds' as ready_at
+  const taskStarts = campaign ? await sql<{ task_type: TaskType; ready_at: Date | string; remaining_ms: number }[]>`
+    select task_type, started_at + interval '5 seconds' as ready_at,
+      greatest(0, ceil(extract(epoch from (
+        (started_at + interval '5 seconds') - clock_timestamp()
+      )) * 1000))::int as remaining_ms
     from spin_task_starts starts
     where user_id = ${user.id}::uuid
       and round_id = ${campaign.round_id}::uuid
@@ -661,6 +668,7 @@ export async function getWheelState(user: SpinUser | null, knownStorage?: Storag
     taskStarts: taskStarts.filter((start) => !progress.claimedTasks.includes(start.task_type)).map((start) => ({
       taskType: start.task_type,
       readyAt: new Date(start.ready_at).toISOString(),
+      waitMs: Number(start.remaining_ms),
     })),
     codeRedemption: progress.codeAwardedSpins === null
       ? null
