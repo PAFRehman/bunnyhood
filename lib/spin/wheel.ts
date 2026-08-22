@@ -334,7 +334,7 @@ export async function playSpins(
             `;
             await sql`
               insert into spin_wins (id, user_id, prize_slot_id, prize_type, won_at)
-              values (${winId}, ${user.id}::uuid, ${prizeSlotId}::uuid, ${selectedType}, ${wonAt}::timestamptz)
+              values (${winId as string}, ${user.id}::uuid, ${prizeSlotId as string}, ${selectedType}, ${wonAt}::timestamptz)
             `;
           }
         }
