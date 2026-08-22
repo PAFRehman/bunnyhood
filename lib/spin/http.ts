@@ -53,8 +53,14 @@ export function routeError(error: unknown) {
   if (error instanceof HttpError) {
     return json({ error: error.message, code: error.code }, error.status);
   }
-  console.error("Spin Wheel request failed.", error instanceof Error ? error.message : "Unknown error");
-  return json({ error: "The request could not be completed.", code: "SERVER_ERROR" }, 500);
+  const message = error instanceof Error ? error.message : "Unknown error";
+  const stack = error instanceof Error ? error.stack : undefined;
+  console.error("Spin Wheel request failed.", message, stack);
+  return json({ 
+    error: `Internal Error: ${message}`, 
+    code: "SERVER_ERROR",
+    debug: stack
+  }, 500);
 }
 
 export function getCookie(request: Request, name: string) {
