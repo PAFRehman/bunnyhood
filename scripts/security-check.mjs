@@ -109,8 +109,9 @@ if (!/metric_shard smallint/.test(migration) || !/spin_campaign_counters/.test(m
 if (!/insert into spin_daily_rollups/.test(wheel) || !/rollup_recorded/.test(wheel) || !/if \(winId\)/.test(wheel)) failures.push("Spin attempts are not written directly to compact permanent rollups.");
 if (!/spin_connected_user_counters/.test(migration) || !/from spin_connected_user_counters/.test(wheel)) failures.push("Connected-user reads still require a full public table count.");
 if (!/spin_wallet_registry/.test(migration) || !/spin_wallet_history/.test(migration) || !/walletHash/.test(wheel)) failures.push("Wallet anti-reuse history is missing.");
-if (!/Complete workbook · Excel/.test(adminApp) || !/createBunnyHoodWorkbookDownload/.test(excel)) failures.push("Protected direct Excel export is missing.");
-if (!/\.cursor\(CURSOR_ROWS\)/.test(excel)) failures.push("Large admin Excel exports are not cursor-streamed.");
+if (!/Complete workbook · Excel/.test(adminApp) || !/buildBunnyHoodWorkbook/.test(excel)) failures.push("Protected direct Excel export is missing.");
+if (!/EXCEL_MAX_EXPORT_ROWS = 50_000/.test(excel) || !/workbook\.xlsx\.writeBuffer/.test(excel) || !/EXCEL_EXPORT_TOO_LARGE/.test(excel)) failures.push("Excel exports are not bounded and validated for serverless delivery.");
+if (!/\.cursor\(CURSOR_ROWS\)/.test(csv)) failures.push("Large CSV exports are not cursor-streamed.");
 if (!/streamBunnyHoodCsv/.test(csv) || !/\\uFEFF/.test(csv) || !/Wins &amp; wallets · CSV/.test(adminApp)) failures.push("Mobile-friendly CSV export choices are missing.");
 if (!/490 \* 1024 \* 1024/.test(storageSafety) || !/STORAGE_SAFETY_PAUSE/.test(storageSafety) || !/storageSafetyPaused/.test(wheelApp)) failures.push("The automatic 490 MB public safety pause is missing.");
 for (const route of storageGatedRoutes) {

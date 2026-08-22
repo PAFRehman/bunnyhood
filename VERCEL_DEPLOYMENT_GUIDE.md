@@ -8,7 +8,7 @@
 4. Confirm every variable listed in `.env.example` exists for Production.
 5. Push to `main` and wait for the Vercel deployment to show **Ready**.
 6. Open `/SpinTheWheel`; the production schema upgrade runs automatically.
-7. Open `/admin/spin` to verify live totals and download either the complete Excel workbook or a mobile-friendly CSV.
+7. Open `/admin/spin` to verify live totals and download either the complete Excel snapshot or a mobile-friendly CSV. Use individual CSV files for large datasets.
 
 ## First deployment
 

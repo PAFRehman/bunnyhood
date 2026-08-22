@@ -22,7 +22,7 @@ Neon PostgreSQL is the only source of truth. Google Sheets and Apps Script are n
 - One compact bitmask row per user/campaign enforces all 60 tasks and 20 code claims instead of creating up to 80 permanent eligibility rows.
 - Winning technical events are retained for 72 hours and idempotent batch responses for six hours; the permanent wins and aggregate totals remain.
 - Expired task timers, campaign progress, sessions, rate-limit buckets, old batch responses, and the retired Sheet queue are cleaned daily.
-- The admin dashboard reads Neon directly every five seconds. It offers a validated complete `.xlsx` workbook plus UTF-8 CSV downloads for users, wins and wallets, referrals, and daily activity. CSV files open directly in Google Sheets, Excel, and mobile spreadsheet apps.
+- The admin dashboard reads Neon directly every five seconds. It offers a validated complete `.xlsx` workbook for normal-sized snapshots plus cursor-streamed UTF-8 CSV downloads for users, wins and wallets, referrals, and daily activity. CSV is the reliable large-data format and opens directly in Google Sheets, Excel, and mobile spreadsheet apps.
 - At 490 MiB, a server-side storage guard automatically blocks every public write and replaces the wheel with a "Next spin batch coming soon" screen. Admin reads, exports, and safe cleanup remain available, and no permanent record is deleted by the guard.
 
 The first authenticated request after deployment applies migration `006` automatically and preserves all existing data. The SQL file remains in `db/migrations/006_production_data_platform.sql` for auditing or manual recovery.

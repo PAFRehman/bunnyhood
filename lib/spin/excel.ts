@@ -1,18 +1,13 @@
-import { randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { stat, unlink } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { Readable } from "node:stream";
 import ExcelJS from "exceljs";
 import { getAdminOverview } from "./admin-data";
 import { getDb } from "./db";
+import { HttpError } from "./http";
 import { ensureProductionSchema } from "./schema";
 
 const LIME = "CAFF00";
 const INK = "090B08";
 const MUTED = "6F766A";
-const CURSOR_ROWS = 2_000;
+const EXCEL_MAX_EXPORT_ROWS = 50_000;
 
 type UserExportRow = {
   id: string;
@@ -79,7 +74,7 @@ function numberValue(value: unknown) {
 }
 
 function startSheet(
-  workbook: ExcelJS.stream.xlsx.WorkbookWriter,
+  workbook: ExcelJS.Workbook,
   name: string,
   columns: Partial<ExcelJS.Column>[],
   tabColor: string,
@@ -96,7 +91,6 @@ function startSheet(
   header.eachCell((cell) => {
     cell.border = { bottom: { style: "thin", color: { argb: INK } } };
   });
-  header.commit();
   return sheet;
 }
 
@@ -104,18 +98,22 @@ function addSummaryRow(sheet: ExcelJS.Worksheet, label: string, value: string | 
   const row = sheet.addRow([label, value]);
   row.getCell(1).font = { bold: true, color: { argb: MUTED } };
   row.getCell(2).font = { bold: true, color: { argb: INK } };
-  row.commit();
 }
 
-async function writeBunnyHoodWorkbook(filename: string) {
+export async function buildBunnyHoodWorkbook() {
   await ensureProductionSchema();
   const sql = getDb();
   const overview = await getAdminOverview();
-  const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
-    filename,
-    useSharedStrings: false,
-    useStyles: true,
-  });
+  const exportRows = overview.totals.users + overview.totals.wins + overview.totals.referrals;
+  if (exportRows > EXCEL_MAX_EXPORT_ROWS) {
+    throw new HttpError(
+      413,
+      "The complete Excel snapshot is too large for one safe server download. Choose an individual CSV export instead.",
+      "EXCEL_EXPORT_TOO_LARGE",
+    );
+  }
+
+  const workbook = new ExcelJS.Workbook();
   workbook.creator = "Bunny Hood Admin";
   workbook.company = "Bunny Hood";
   workbook.subject = "Secure Neon production records";
@@ -143,7 +141,6 @@ async function writeBunnyHoodWorkbook(filename: string) {
   addSummaryRow(summary, "Database bytes", overview.storage.databaseBytes);
   addSummaryRow(summary, "Raw events retained", overview.storage.rawEvents);
   addSummaryRow(summary, "Permanent rollup attempts", overview.storage.recordedAttempts);
-  summary.commit();
 
   const userSheet = startSheet(workbook, "Users", [
     { header: "USER ID", key: "id", width: 38 },
@@ -165,7 +162,7 @@ async function writeBunnyHoodWorkbook(filename: string) {
     { header: "LAST SEEN", key: "lastSeenAt", width: 25 },
     { header: "LAST SPIN", key: "lastSpinAt", width: 25 },
   ], LIME);
-  const userCursor = sql<UserExportRow[]>`
+  const users = await sql<UserExportRow[]>`
     select users.id, users.x_user_id, users.x_username, users.x_name,
       users.spins_earned, users.spins_available, users.spins_used, users.points,
       users.total_wins,
@@ -178,32 +175,29 @@ async function writeBunnyHoodWorkbook(filename: string) {
     left join spin_wins wins on wins.user_id = users.id
     group by users.id
     order by users.created_at desc, users.id
-  `.cursor(CURSOR_ROWS);
-  for await (const users of userCursor) {
-    for (const user of users) {
-      userSheet.addRow({
-        id: user.id,
-        xUserId: safeText(user.x_user_id),
-        xUsername: safeText(user.x_username),
-        xName: safeText(user.x_name),
-        points: numberValue(user.points),
-        spinsEarned: numberValue(user.spins_earned),
-        spinsAvailable: numberValue(user.spins_available),
-        spinsUsed: numberValue(user.spins_used),
-        totalWins: Number(user.total_wins),
-        gtd: Number(user.gtd_wins),
-        fcfs1: Number(user.fcfs1_wins),
-        fcfs2: Number(user.fcfs2_wins),
-        referralCode: safeText(user.referral_code),
-        referralCount: Number(user.referral_count),
-        referralSpins: Number(user.referral_spins_earned),
-        createdAt: new Date(user.created_at).toISOString(),
-        lastSeenAt: new Date(user.last_seen_at).toISOString(),
-        lastSpinAt: user.last_spin_at ? new Date(user.last_spin_at).toISOString() : "",
-      }).commit();
-    }
+  `;
+  for (const user of users) {
+    userSheet.addRow({
+      id: user.id,
+      xUserId: safeText(user.x_user_id),
+      xUsername: safeText(user.x_username),
+      xName: safeText(user.x_name),
+      points: numberValue(user.points),
+      spinsEarned: numberValue(user.spins_earned),
+      spinsAvailable: numberValue(user.spins_available),
+      spinsUsed: numberValue(user.spins_used),
+      totalWins: Number(user.total_wins),
+      gtd: Number(user.gtd_wins),
+      fcfs1: Number(user.fcfs1_wins),
+      fcfs2: Number(user.fcfs2_wins),
+      referralCode: safeText(user.referral_code),
+      referralCount: Number(user.referral_count),
+      referralSpins: Number(user.referral_spins_earned),
+      createdAt: new Date(user.created_at).toISOString(),
+      lastSeenAt: new Date(user.last_seen_at).toISOString(),
+      lastSpinAt: user.last_spin_at ? new Date(user.last_spin_at).toISOString() : "",
+    });
   }
-  userSheet.commit();
 
   const winSheet = startSheet(workbook, "Wins & Wallets", [
     { header: "WIN ID", key: "id", width: 38 },
@@ -217,32 +211,29 @@ async function writeBunnyHoodWorkbook(filename: string) {
     { header: "EVM WALLET", key: "wallet", width: 46 },
     { header: "WALLET SUBMITTED AT", key: "walletSubmittedAt", width: 25 },
   ], "FFD700");
-  const winCursor = sql<WinExportRow[]>`
+  const wins = await sql<WinExportRow[]>`
     select wins.id, wins.user_id, users.x_user_id, users.x_username, users.x_name,
       wins.prize_type, wins.won_at, wins.wallet_address, wins.wallet_submitted_at
     from spin_wins wins
     join spin_users users on users.id = wins.user_id
     order by wins.won_at desc, wins.id
-  `.cursor(CURSOR_ROWS);
-  for await (const wins of winCursor) {
-    for (const win of wins) {
-      winSheet.addRow({
-        id: win.id,
-        userId: win.user_id,
-        xUserId: safeText(win.x_user_id),
-        xUsername: safeText(win.x_username),
-        xName: safeText(win.x_name),
-        role: win.prize_type,
-        wonAt: new Date(win.won_at).toISOString(),
-        walletStatus: win.wallet_address ? "SUBMITTED" : "WAITING",
-        wallet: safeText(win.wallet_address),
-        walletSubmittedAt: win.wallet_submitted_at
-          ? new Date(win.wallet_submitted_at).toISOString()
-          : "",
-      }).commit();
-    }
+  `;
+  for (const win of wins) {
+    winSheet.addRow({
+      id: win.id,
+      userId: win.user_id,
+      xUserId: safeText(win.x_user_id),
+      xUsername: safeText(win.x_username),
+      xName: safeText(win.x_name),
+      role: win.prize_type,
+      wonAt: new Date(win.won_at).toISOString(),
+      walletStatus: win.wallet_address ? "SUBMITTED" : "WAITING",
+      wallet: safeText(win.wallet_address),
+      walletSubmittedAt: win.wallet_submitted_at
+        ? new Date(win.wallet_submitted_at).toISOString()
+        : "",
+    });
   }
-  winSheet.commit();
 
   const referralSheet = startSheet(workbook, "Referrals", [
     { header: "REFERRAL ID", key: "id", width: 38 },
@@ -254,7 +245,7 @@ async function writeBunnyHoodWorkbook(filename: string) {
     { header: "SPINS AWARDED", key: "spins", width: 17 },
     { header: "CREATED AT", key: "createdAt", width: 25 },
   ], "8FD400");
-  const referralCursor = sql<ReferralExportRow[]>`
+  const referrals = await sql<ReferralExportRow[]>`
     select referrals.id,
       referrers.x_user_id as referrer_x_user_id,
       referrers.x_username as referrer_username,
@@ -265,22 +256,19 @@ async function writeBunnyHoodWorkbook(filename: string) {
     join spin_users referrers on referrers.id = referrals.referrer_user_id
     join spin_users referred on referred.id = referrals.referred_user_id
     order by referrals.created_at desc, referrals.id
-  `.cursor(CURSOR_ROWS);
-  for await (const referrals of referralCursor) {
-    for (const referral of referrals) {
-      referralSheet.addRow({
-        id: referral.id,
-        referrerXId: safeText(referral.referrer_x_user_id),
-        referrer: safeText(referral.referrer_username),
-        referredXId: safeText(referral.referred_x_user_id),
-        referred: safeText(referral.referred_username),
-        code: safeText(referral.referral_code),
-        spins: Number(referral.awarded_spins),
-        createdAt: new Date(referral.created_at).toISOString(),
-      }).commit();
-    }
+  `;
+  for (const referral of referrals) {
+    referralSheet.addRow({
+      id: referral.id,
+      referrerXId: safeText(referral.referrer_x_user_id),
+      referrer: safeText(referral.referrer_username),
+      referredXId: safeText(referral.referred_x_user_id),
+      referred: safeText(referral.referred_username),
+      code: safeText(referral.referral_code),
+      spins: Number(referral.awarded_spins),
+      createdAt: new Date(referral.created_at).toISOString(),
+    });
   }
-  referralSheet.commit();
 
   const dailySheet = startSheet(workbook, "Daily Activity", [
     { header: "UTC DAY", key: "day", width: 15 },
@@ -292,7 +280,7 @@ async function writeBunnyHoodWorkbook(filename: string) {
     { header: "FCFS1", key: "fcfs1", width: 10 },
     { header: "FCFS2", key: "fcfs2", width: 10 },
   ], "63A900");
-  const dailyCursor = sql<DailyExportRow[]>`
+  const days = await sql<DailyExportRow[]>`
     select metric_day,
       sum(attempts)::text as attempts,
       sum(spins_consumed)::text as spins_consumed,
@@ -304,39 +292,29 @@ async function writeBunnyHoodWorkbook(filename: string) {
     from spin_daily_rollups
     group by metric_day
     order by metric_day desc
-  `.cursor(CURSOR_ROWS);
-  for await (const days of dailyCursor) {
-    for (const day of days) {
-      dailySheet.addRow({
-        day: new Date(day.metric_day).toISOString().slice(0, 10),
-        attempts: numberValue(day.attempts),
-        used: numberValue(day.spins_consumed),
-        refunds: numberValue(day.spins_refunded),
-        none: numberValue(day.no_prize),
-        gtd: numberValue(day.gtd_wins),
-        fcfs1: numberValue(day.fcfs1_wins),
-        fcfs2: numberValue(day.fcfs2_wins),
-      }).commit();
-    }
+  `;
+  for (const day of days) {
+    dailySheet.addRow({
+      day: new Date(day.metric_day).toISOString().slice(0, 10),
+      attempts: numberValue(day.attempts),
+      used: numberValue(day.spins_consumed),
+      refunds: numberValue(day.spins_refunded),
+      none: numberValue(day.no_prize),
+      gtd: numberValue(day.gtd_wins),
+      fcfs1: numberValue(day.fcfs1_wins),
+      fcfs2: numberValue(day.fcfs2_wins),
+    });
   }
-  dailySheet.commit();
-  await workbook.commit();
-}
 
-export async function createBunnyHoodWorkbookDownload() {
-  const filename = join(tmpdir(), `bunnyhood-${randomUUID()}.xlsx`);
-  try {
-    await writeBunnyHoodWorkbook(filename);
-    const fileInfo = await stat(filename);
-    if (fileInfo.size < 100) throw new Error("The generated Excel workbook is incomplete.");
-    const source = createReadStream(filename);
-    source.once("close", () => void unlink(filename).catch(() => undefined));
-    return {
-      body: Readable.toWeb(source) as ReadableStream<Uint8Array>,
-      bytes: fileInfo.size,
-    };
-  } catch (error) {
-    await unlink(filename).catch(() => undefined);
-    throw error;
+  const buffer = await workbook.xlsx.writeBuffer();
+  const bytes = new Uint8Array(buffer);
+  const isZip = bytes.length >= 4
+    && bytes[0] === 0x50
+    && bytes[1] === 0x4b
+    && bytes[2] === 0x03
+    && bytes[3] === 0x04;
+  if (!isZip) {
+    throw new HttpError(500, "The Excel file could not be created. Choose a CSV export and try Excel again later.", "EXCEL_EXPORT_FAILED");
   }
+  return { bytes, recordCount: exportRows };
 }
