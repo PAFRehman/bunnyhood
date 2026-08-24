@@ -9,6 +9,7 @@ import {
   type CompactTaskType,
 } from "./progress";
 import { enforceRateLimit } from "./rate-limit";
+import { ensureProductionSchema } from "./schema";
 import { hashRedeemCode } from "./security";
 import type { SpinUserRow } from "./users";
 
@@ -303,6 +304,7 @@ export async function publishCampaign(input: {
   fcfs2Count?: number;
   startNewCampaign?: boolean;
 }) {
+  await ensureProductionSchema();
   const title = input.title.trim().slice(0, 80) || "Bunny Hood Drop";
   const tweetUrl = input.tweetUrl.trim();
   const tweetId = extractTweetId(tweetUrl);
@@ -314,6 +316,14 @@ export async function publishCampaign(input: {
   const gtdCount = integerInRange(input.gtdCount, 15, 1, 100_000);
   const fcfs1Count = integerInRange(input.fcfs1Count, 20, 1, 100_000);
   const fcfs2Count = integerInRange(input.fcfs2Count, 30, 1, 100_000);
+  const totalWinnerSpots = gtdCount + fcfs1Count + fcfs2Count;
+  if (totalWinnerSpots > expectedUsers) {
+    throw new HttpError(
+      400,
+      "Total GTD, FCFS1, and FCFS2 spots cannot exceed expected unique users.",
+      "TOO_MANY_WINNER_SPOTS",
+    );
+  }
   const end = input.endsAt ? new Date(input.endsAt) : new Date(Date.now() + 20 * 24 * 60 * 60 * 1000);
   if (!Number.isFinite(end.getTime()) || end.getTime() <= Date.now() + 5 * 60_000) {
     throw new HttpError(400, "Campaign end time must be at least five minutes from now.", "BAD_END_TIME");
@@ -369,7 +379,7 @@ export async function publishCampaign(input: {
       ) values (
         ${campaignId}, ${title}, ${tweetId}, ${tweetUrl},
         ${hashRedeemCode(campaignId, code)}, now(), ${end.toISOString()}::timestamptz, true,
-        ${expectedUsers}, 360, 2
+        ${expectedUsers}, 20, 2
       )
     `;
     const roundId = randomUUID();
@@ -387,6 +397,11 @@ export async function publishCampaign(input: {
         (${campaignId}, 'GTD', ${gtdCount}),
         (${campaignId}, 'FCFS1', ${fcfs1Count}),
         (${campaignId}, 'FCFS2', ${fcfs2Count})
+    `;
+    await sql`
+      insert into spin_campaign_draw_counters (campaign_id)
+      values (${campaignId}::uuid)
+      on conflict (campaign_id) do nothing
     `;
     const created = await getActiveCampaign(sql);
     if (!created) throw new HttpError(500, "The campaign could not be activated.", "CAMPAIGN_ACTIVATION_FAILED");

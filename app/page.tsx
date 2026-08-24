@@ -38,6 +38,7 @@ export default function Home() {
           <p>A new crew is hopping onchain. Connect your X profile, complete the daily tasks, and spin for Bunny Hood rewards.</p>
           <div className="hero-actions">
             <a className="button button-primary" href="/SpinTheWheel">Spin the Wheel <DirectionIcon down /></a>
+            <a className="button button-quiet" href="/whitepaper">Read Whitepaper <DirectionIcon /></a>
             <a className="button button-quiet" href="#collection">Meet the Bunnys</a>
           </div>
         </div>

@@ -25,7 +25,7 @@ export async function getAdminOverview() {
     getSpinSettings(sql),
   ]);
 
-  const [totals, inventory, databaseSize, tableStats, retention, daily, integrity] = await Promise.all([
+  const [totals, inventory, draw, databaseSize, tableStats, retention, daily, integrity] = await Promise.all([
     sql<{
       users: number;
       active_24h: number;
@@ -60,6 +60,12 @@ export async function getAdminOverview() {
       from spin_campaign_prizes
       where campaign_id = ${campaign.id}::uuid
       order by case prize_type when 'GTD' then 1 when 'FCFS1' then 2 else 3 end
+    ` : Promise.resolve([]),
+    campaign ? sql<{ participants_seen: number; winners_selected: number }[]>`
+      select participants_seen, winners_selected
+      from spin_campaign_draw_counters
+      where campaign_id = ${campaign.id}::uuid
+      limit 1
     ` : Promise.resolve([]),
     sql<{ bytes: number | string }[]>`
       select pg_database_size(current_database())::text as bytes
@@ -137,6 +143,8 @@ export async function getAdminOverview() {
       expectedUsers: Number(campaign.expected_users),
       expectedSpinsPerUser: Number(campaign.expected_spins_per_user),
       spinsProcessed: Number(campaign.spins_processed),
+      participantsSeen: Number(draw[0]?.participants_seen ?? 0),
+      winnersSelected: Number(draw[0]?.winners_selected ?? 0),
     } : null,
     totals: {
       users: numeric(total?.users),

@@ -1,9 +1,8 @@
-import { createHmac, randomInt, randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import type { SpinUser } from "./auth";
 import type { CampaignRow, TaskType } from "./campaigns";
 import { getActiveCampaign, getLatestPrizeCampaign, settleMaturedCampaignTasks } from "./campaigns";
-import { requireStrongSecret } from "./config";
-import { getDb, inTransaction } from "./db";
+import { getDb, inTransaction, type SpinDb } from "./db";
 import { HttpError } from "./http";
 import { getRoundProgress, hasCodeReward, markCodeReward } from "./progress";
 import { enforceRateLimit } from "./rate-limit";
@@ -16,12 +15,8 @@ import { ensureReferralCode, type SpinUserRow } from "./users";
 export type PrizeType = "GTD" | "FCFS1" | "FCFS2";
 export type SpinResult = PrizeType | "NONE" | "REFUND";
 
-const PRIZE_TYPES: PrizeType[] = ["GTD", "FCFS1", "FCFS2"];
 const MAX_ROLE_WINS = 3;
 const MAX_BATCH_SPINS = 100;
-const MAX_TYPE_PROBABILITY = 0.18;
-const MAX_COMBINED_PROBABILITY = 0.55;
-const PROBABILITY_SCALE = 1_000_000_000;
 
 type CampaignPrize = {
   campaign_id: string;
@@ -31,6 +26,16 @@ type CampaignPrize = {
 };
 
 type RoleWinCounts = Record<PrizeType, number>;
+
+type CampaignDrawCounter = {
+  participants_seen: number;
+  winners_selected: number;
+};
+
+type ParticipantPrize = {
+  prizeType: PrizeType;
+  ordinal: number;
+};
 
 export type SpinOutcome = {
   eventId: string;
@@ -71,85 +76,116 @@ function userMetricShard(userId: string) {
   return Number.parseInt(userId.replace(/-/g, "").slice(0, 8), 16) % 64;
 }
 
-function deterministicNumber(campaignId: string, prizeType: PrizeType, ordinal: number) {
-  const bytes = createHmac("sha256", requireStrongSecret("PRIZE_RANDOM_SECRET"))
-    .update(`${campaignId}:${prizeType}:release:${ordinal}`)
-    .digest();
-  return bytes.readUInt32BE(0) / 0x1_0000_0000;
-}
-
-function releasedPrizeCount(campaign: CampaignRow, prize: CampaignPrize, now = Date.now()) {
-  const total = Number(prize.total_count);
-  if (total <= 0) return 0;
-  const start = new Date(campaign.starts_at).getTime();
-  const end = new Date(campaign.ends_at).getTime();
-  if (now <= start) return 0;
-  if (now >= end) return total;
-  const elapsed = (now - start) / Math.max(1, end - start);
-  const releaseFraction = (index: number) => (
-    index + 0.2 + deterministicNumber(campaign.id, prize.prize_type, index) * 0.6
-  ) / total;
-
-  let low = 0;
-  let high = total;
-  while (low < high) {
-    const middle = Math.ceil((low + high) / 2);
-    if (releaseFraction(middle - 1) <= elapsed) low = middle;
-    else high = middle - 1;
-  }
-  return low;
-}
-
-function choosePrize(
-  campaign: CampaignRow,
-  prizes: CampaignPrize[],
-  observedCampaignSpins: number,
-  roleWins: RoleWinCounts,
-) {
-  const expectedTotalSpins = Math.max(
-    1,
-    Number(campaign.expected_users) * Number(campaign.expected_spins_per_user),
-  );
-  const start = new Date(campaign.starts_at).getTime();
-  const end = new Date(campaign.ends_at).getTime();
-  const elapsed = Math.min(0.999_999, Math.max(0.000_001, (Date.now() - start) / Math.max(1, end - start)));
-  const paceProjection = observedCampaignSpins > 0
-    ? Math.max(observedCampaignSpins, observedCampaignSpins / elapsed)
-    : expectedTotalSpins;
-  const paceConfidence = Math.min(1, observedCampaignSpins / Math.max(1, expectedTotalSpins * 0.1));
-  const projectedTotalSpins = expectedTotalSpins * (1 - paceConfidence) + paceProjection * paceConfidence;
-  const expectedRemainingSpins = Math.max(1, Math.ceil(projectedTotalSpins - observedCampaignSpins));
-  const weighted = PRIZE_TYPES.map((type) => {
-    const prize = prizes.find((item) => item.prize_type === type);
-    if (!prize) return { type, probability: 0 };
-    const total = Number(prize.total_count);
-    const awarded = Number(prize.awarded_count);
-    const released = releasedPrizeCount(campaign, prize);
-    if (awarded >= total || awarded >= released) return { type, probability: 0 };
-    const remaining = total - awarded;
-    const repeatMultiplier = 0.5 ** Math.min(MAX_ROLE_WINS, roleWins[type]);
-    return {
-      type,
-      probability: Math.min(MAX_TYPE_PROBABILITY, remaining / expectedRemainingSpins) * repeatMultiplier,
-    };
-  });
-
-  const combined = weighted.reduce((sum, item) => sum + item.probability, 0);
-  if (combined <= 0) return null;
-  const scale = combined > MAX_COMBINED_PROBABILITY
-    ? MAX_COMBINED_PROBABILITY / combined
-    : 1;
-  const draw = randomInt(PROBABILITY_SCALE) / PROBABILITY_SCALE;
-  let cursor = 0;
-  for (const item of weighted) {
-    cursor += item.probability * scale;
-    if (draw < cursor) return item.type;
-  }
-  return null;
-}
-
 function emptyRoleCounts(): RoleWinCounts {
   return { GTD: 0, FCFS1: 0, FCFS2: 0 };
+}
+
+function chooseParticipantPrize(prizes: CampaignPrize[], roleWins: RoleWinCounts) {
+  const weighted = prizes.flatMap((prize) => {
+    const remaining = Number(prize.total_count) - Number(prize.awarded_count);
+    if (remaining <= 0 || roleWins[prize.prize_type] >= MAX_ROLE_WINS) return [];
+    return [{
+      prize,
+      weight: remaining * (2 ** (MAX_ROLE_WINS - roleWins[prize.prize_type])),
+    }];
+  });
+  const totalWeight = weighted.reduce((sum, item) => sum + item.weight, 0);
+  if (totalWeight <= 0) return null;
+  const draw = randomInt(totalWeight);
+  let cursor = 0;
+  for (const item of weighted) {
+    cursor += item.weight;
+    if (draw < cursor) return item.prize;
+  }
+  return weighted.at(-1)?.prize ?? null;
+}
+
+async function drawUniqueParticipantPrize(
+  sql: SpinDb,
+  campaign: CampaignRow,
+  prizes: CampaignPrize[],
+  userId: string,
+  roleWins: RoleWinCounts,
+): Promise<ParticipantPrize | null> {
+  const existing = await sql<{ selected: boolean }[]>`
+    select selected
+    from spin_campaign_participants
+    where campaign_id = ${campaign.id}::uuid and user_id = ${userId}::uuid
+    limit 1
+  `;
+  if (existing[0]) return null;
+
+  await sql`select pg_advisory_xact_lock(hashtext(${`bunny-hood-campaign-draw:${campaign.id}`}))`;
+  const rechecked = await sql<{ selected: boolean }[]>`
+    select selected
+    from spin_campaign_participants
+    where campaign_id = ${campaign.id}::uuid and user_id = ${userId}::uuid
+    limit 1
+  `;
+  if (rechecked[0]) return null;
+
+  await sql`
+    insert into spin_campaign_draw_counters (campaign_id)
+    values (${campaign.id}::uuid)
+    on conflict (campaign_id) do nothing
+  `;
+  const counters = await sql<CampaignDrawCounter[]>`
+    select participants_seen, winners_selected
+    from spin_campaign_draw_counters
+    where campaign_id = ${campaign.id}::uuid
+    for update
+  `;
+  const counter = counters[0];
+  if (!counter) throw new Error("Campaign draw counter is unavailable.");
+
+  const participantsSeen = Number(counter.participants_seen);
+  const participantNumber = participantsSeen + 1;
+  const remainingParticipantCapacity = Math.max(1, Number(campaign.expected_users) - participantsSeen);
+  const eligiblePrizeCount = prizes.reduce((sum, prize) => {
+    if (roleWins[prize.prize_type] >= MAX_ROLE_WINS) return sum;
+    return sum + Math.max(0, Number(prize.total_count) - Number(prize.awarded_count));
+  }, 0);
+  const selected = eligiblePrizeCount > 0 && (
+    eligiblePrizeCount >= remainingParticipantCapacity
+    || randomInt(remainingParticipantCapacity) < eligiblePrizeCount
+  );
+
+  let awarded: ParticipantPrize | null = null;
+  if (selected) {
+    const chosen = chooseParticipantPrize(prizes, roleWins);
+    if (chosen) {
+      const reserved = await sql<{ awarded_count: number }[]>`
+        update spin_campaign_prizes
+        set awarded_count = awarded_count + 1, updated_at = now()
+        where campaign_id = ${campaign.id}::uuid
+          and prize_type = ${chosen.prize_type}
+          and awarded_count < total_count
+        returning awarded_count
+      `;
+      if (reserved[0]) {
+        const ordinal = Number(reserved[0].awarded_count);
+        chosen.awarded_count = ordinal;
+        awarded = { prizeType: chosen.prize_type, ordinal };
+      }
+    }
+  }
+
+  await sql`
+    insert into spin_campaign_participants (
+      campaign_id, user_id, participant_number, selected, prize_type, prize_ordinal
+    ) values (
+      ${campaign.id}::uuid, ${userId}::uuid, ${participantNumber}, ${Boolean(awarded)},
+      ${awarded?.prizeType ?? null}::text, ${awarded?.ordinal ?? null}::integer
+    )
+  `;
+  await sql`
+    update spin_campaign_draw_counters
+    set participants_seen = ${participantNumber},
+        winners_selected = winners_selected + ${awarded ? 1 : 0},
+        updated_at = now()
+    where campaign_id = ${campaign.id}::uuid
+  `;
+  return awarded;
 }
 
 export async function redeemCampaignCode(user: SpinUser, rawCode: string) {
@@ -231,6 +267,7 @@ export async function playSpins(
   if (!Number.isInteger(requestedCount) || requestedCount < 1 || requestedCount > MAX_BATCH_SPINS) {
     throw new HttpError(400, `Choose between 1 and ${MAX_BATCH_SPINS} spins.`, "BAD_SPIN_COUNT");
   }
+  await ensureProductionSchema();
   const database = getDb();
   await enforceRateLimit(`spin:${user.id}`, 60, 60, database);
 
@@ -275,13 +312,19 @@ export async function playSpins(
     if (prizes.length !== 3) {
       throw new HttpError(503, "Campaign prizes are not configured yet.", "PRIZES_NOT_CONFIGURED");
     }
-    let observedCampaignSpins = Number(campaign.spins_processed);
     const roleRows = await sql<{ prize_type: PrizeType; count: number }[]>`
       select prize_type, count(*)::int as count
       from spin_wins where user_id = ${user.id}::uuid group by prize_type
     `;
     const roleWins = emptyRoleCounts();
     for (const row of roleRows) roleWins[row.prize_type] = Number(row.count);
+    const participantPrize = await drawUniqueParticipantPrize(
+      sql,
+      campaign,
+      prizes,
+      user.id,
+      roleWins,
+    );
 
     let spinsAvailable = availableAtStart;
     let spinsUsed = Number(current.spins_used);
@@ -289,7 +332,7 @@ export async function playSpins(
     const outcomes: SpinOutcome[] = [];
 
     for (let index = 0; index < processed; index += 1) {
-      const selectedType = choosePrize(campaign, prizes, observedCampaignSpins, roleWins);
+      const selectedType = index === 0 ? participantPrize?.prizeType ?? null : null;
       const eventId = randomUUID();
       const eventKey = randomUUID();
       const spinsBefore = spinsAvailable;
@@ -300,51 +343,34 @@ export async function playSpins(
       if (selectedType && roleWins[selectedType] >= MAX_ROLE_WINS) {
         result = "REFUND";
       } else if (selectedType) {
-        const prize = prizes.find((item) => item.prize_type === selectedType)!;
-        const released = releasedPrizeCount(campaign, prize);
-        if (Number(prize.awarded_count) < Number(prize.total_count)
-          && Number(prize.awarded_count) < released) {
-          const reserved = await sql<{ awarded_count: number }[]>`
-            update spin_campaign_prizes
-            set awarded_count = awarded_count + 1, updated_at = now()
-            where campaign_id = ${campaign.id}::uuid
-              and prize_type = ${selectedType}
-              and awarded_count < total_count
-              and awarded_count < ${released}
-            returning awarded_count
-          `;
-          if (reserved[0]) {
-            const ordinal = Number(reserved[0].awarded_count);
-            result = selectedType;
-            prize.awarded_count = ordinal;
-            roleWins[selectedType] += 1;
-            totalWins += 1;
-            winId = randomUUID();
-            prizeSlotId = randomUUID();
-            const wonAt = new Date().toISOString();
-            await sql`
-              insert into spin_prize_slots (
-                id, prize_day, prize_type, slot_number, release_at, claim_after, attempts,
-                winner_user_id, spin_event_id, claimed_at, campaign_id, campaign_slot_number
-              ) values (
-                ${prizeSlotId}, ${utcPrizeDay()}::date, ${selectedType}, ${ordinal},
-                now(), 1, 1, ${user.id}::uuid, ${eventId}::uuid, now(),
-                ${campaign.id}::uuid, ${ordinal}
-              )
-            `;
-            await sql`
-              insert into spin_wins (id, user_id, prize_slot_id, prize_type, won_at)
-              values (${winId as string}, ${user.id}::uuid, ${prizeSlotId as string}, ${selectedType}, ${wonAt}::timestamptz)
-            `;
-          }
-        }
+        const ordinal = participantPrize?.ordinal;
+        if (!ordinal) throw new Error("Campaign prize reservation is missing its ordinal.");
+        result = selectedType;
+        roleWins[selectedType] += 1;
+        totalWins += 1;
+        winId = randomUUID();
+        prizeSlotId = randomUUID();
+        const wonAt = new Date().toISOString();
+        await sql`
+          insert into spin_prize_slots (
+            id, prize_day, prize_type, slot_number, release_at, claim_after, attempts,
+            winner_user_id, spin_event_id, claimed_at, campaign_id, campaign_slot_number
+          ) values (
+            ${prizeSlotId}, ${utcPrizeDay()}::date, ${selectedType}, ${ordinal},
+            now(), 1, 1, ${user.id}::uuid, ${eventId}::uuid, now(),
+            ${campaign.id}::uuid, ${ordinal}
+          )
+        `;
+        await sql`
+          insert into spin_wins (id, user_id, prize_slot_id, prize_type, won_at)
+          values (${winId as string}, ${user.id}::uuid, ${prizeSlotId as string}, ${selectedType}, ${wonAt}::timestamptz)
+        `;
       }
 
       if (result !== "REFUND") {
         spinsAvailable -= 1;
         spinsUsed += 1;
       }
-      observedCampaignSpins += 1;
       const outcome: SpinOutcome = {
         eventId,
         result,

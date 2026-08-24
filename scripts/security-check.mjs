@@ -27,6 +27,7 @@ const migration = [
   "004_wallet_permissions_and_sync.sql",
   "005_wallet_submission_control.sql",
   "006_production_data_platform.sql",
+  "007_unique_campaign_winners.sql",
 ].map((name) => readFileSync(join(root, "db/migrations", name), "utf8")).join("\n");
 const wheel = readFileSync(join(root, "lib/spin/wheel.ts"), "utf8");
 const campaigns = readFileSync(join(root, "lib/spin/campaigns.ts"), "utf8");
@@ -86,13 +87,14 @@ if (/liked_tweets|referenced_tweets|tasks\/verify|verifyOnX/.test(`${campaigns}\
 if (/like\.read|offline\.access/.test(xStart)) failures.push("Unneeded X task-verification scopes are still requested.");
 if (!/unique \(user_id, round_id\)/.test(migration)) failures.push("Per-round code redemption uniqueness is missing.");
 if (!/randomInt\(10, 21\)/.test(wheel)) failures.push("Secure 10–20 code-spin allocation is missing.");
-if (!/awardByRound/.test(progress) || !/\$\{awardByRound\}::jsonb/.test(progress) || /jsonb_build_object\(\$\{String\(roundNumber\)\}/.test(progress)) failures.push("Redeem-code JSON persistence can fail PostgreSQL parameter inference.");
+if (!/awardByRound/.test(progress) || !/sql\.json\(awardByRound\)/.test(progress) || /jsonb_build_object\(\$\{String\(roundNumber\)\}/.test(progress)) failures.push("Redeem-code JSON persistence can fail PostgreSQL parameter inference.");
 if (!/create table if not exists spin_campaign_prizes/.test(migration)) failures.push("Private campaign prize inventory is missing.");
 if (!/expected_users integer not null default 500/.test(migration)) failures.push("Five-hundred-user campaign pacing is missing.");
-if (!/expected_spins_per_user integer not null default 360/.test(migration) || !/\$\{expectedUsers\}, 360, 2/.test(campaigns)) failures.push("Twenty-round spin pacing is missing.");
+if (!/alter column expected_spins_per_user set default 20/.test(migration) || !/\$\{expectedUsers\}, 20, 2/.test(campaigns)) failures.push("Per-user spin pacing is missing.");
 if (!/20 \* 24 \* 60 \* 60 \* 1000/.test(campaigns)) failures.push("Twenty-day campaign default is missing.");
-if (!/0\.5 \*\*/.test(wheel)) failures.push("Repeat-role probability reduction is missing.");
-if (!/paceProjection/.test(wheel) || !/paceConfidence/.test(wheel)) failures.push("Turnout-adaptive campaign pacing is missing.");
+if (!/2 \*\* \(MAX_ROLE_WINS - roleWins/.test(wheel)) failures.push("Repeat-role probability reduction is missing.");
+if (!/spin_campaign_participants/.test(migration) || !/spin_campaign_draw_counters/.test(migration) || !/remainingParticipantCapacity/.test(wheel) || !/randomInt\(remainingParticipantCapacity\) < eligiblePrizeCount/.test(wheel)) failures.push("Unique-user campaign allocation is missing.");
+if (!/totalWinnerSpots > expectedUsers/.test(campaigns) || !/TOO_MANY_WINNER_SPOTS/.test(campaigns)) failures.push("Campaign winner targets can exceed the unique-user draw capacity.");
 if (!/spin_batches/.test(migration) || !/playSpins/.test(wheel)) failures.push("Idempotent batch spinning is missing.");
 if (!/spin_referrals/.test(migration) || !/awarded_spins integer not null default 3/.test(migration)) failures.push("Three-spin referral rewards are missing.");
 if (!/spin_referral_codes/.test(migration) || !/from spin_referral_codes/.test(users)) failures.push("Persistent referral-link aliases are missing.");
@@ -103,7 +105,7 @@ if (!/Share referral link on X/.test(wheelApp) || !/Share win on X/.test(wheelAp
 if (/20 DAYS|PRIVATE PACED CAMPAIGN DRAW|hero-mini-wheel/.test(wheelApp)) failures.push("Removed hero campaign copy or dummy wheel is still rendered.");
 if (/flushSheetOutbox|queueSheetSync|sheetSynced|Google Sheets will retry/.test(source)) failures.push("The retired Google Sheets write path is still coupled to production requests.");
 if (!/spins_earned = spins_available \+ spins_used/.test(migration) || !/spins_earned = spins_earned \+/.test(`${campaigns}\n${users}\n${wheel}`)) failures.push("Permanent lifetime spin accounting is missing.");
-if (!/spins_processed bigint not null default 0/.test(migration) || !/campaign\.spins_processed/.test(wheel)) failures.push("Permanent campaign attempt pacing is missing.");
+if (!/spins_processed bigint not null default 0/.test(migration) || !/spin_campaign_draw_counters/.test(`${wheel}\n${adminData}`) || !/spin_campaign_counters/.test(wheel)) failures.push("Permanent campaign attempt and participant pacing is missing.");
 if (!/spin_daily_rollups/.test(migration) || !/RAW_SPIN_RETENTION_HOURS = 72/.test(maintenance)) failures.push("Bounded raw-event retention and permanent rollups are missing.");
 if (!/spin_user_campaign_progress/.test(migration) || !/task_claimed_bits bigint/.test(migration) || !/code_redeemed_bits bigint/.test(migration)) failures.push("Compact per-campaign reward eligibility is missing.");
 if (/insert into spin_task_claims|insert into spin_code_redemptions/.test(`${campaigns}\n${wheel}`) || !/markTaskReward/.test(progress) || !/markCodeReward/.test(progress)) failures.push("Runtime rewards still create one permanent row per task or code claim.");
@@ -126,7 +128,7 @@ if (!/setWalletSubmissionsAllowed/.test(source) || !/Pause wallet submissions/.t
 if (!/export async function DELETE/.test(walletRoute) || !/removeWinWallet/.test(`${walletRoute}\n${wheel}`) || !/Remove wallet/.test(wheelApp)) failures.push("User wallet removal is missing.");
 if (!/xShareUrl\([\s\S]{0,180}referralLink/.test(wheelApp)) failures.push("Referral links are not attached to X shares.");
 if (/GTD LEFT|FCFS1 LEFT|FCFS2 LEFT|Daily prize inventory/.test(wheelApp)) failures.push("Private prize counts are exposed in the public UI.");
-if (!/Total GTD/.test(adminApp) || !/Expected connected users/.test(adminApp)) failures.push("Admin campaign controls are incomplete.");
+if (!/Total GTD/.test(adminApp) || !/Expected unique users/.test(adminApp) || !/Unique winners selected/.test(adminApp)) failures.push("Admin campaign controls are incomplete.");
 if (/GTD_NOT_RAREST|GTD must be lower than both FCFS/.test(campaigns)) failures.push("Admin still forces GTD totals below both FCFS totals.");
 
 if (failures.length) {
