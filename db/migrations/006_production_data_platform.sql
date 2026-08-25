@@ -147,8 +147,9 @@ create table if not exists spin_user_campaign_progress (
   user_id uuid not null references spin_users(id) on delete cascade,
   campaign_id uuid not null references spin_campaigns(id) on delete cascade,
   task_claimed_bits bigint not null default 0 check (task_claimed_bits >= 0),
+  extra_task_claimed_bits bigint not null default 0 check (extra_task_claimed_bits >= 0),
   code_redeemed_bits bigint not null default 0 check (code_redeemed_bits >= 0),
-  task_rewards_earned integer not null default 0 check (task_rewards_earned between 0 and 60),
+  task_rewards_earned integer not null default 0 check (task_rewards_earned between 0 and 100),
   code_redemptions integer not null default 0 check (code_redemptions between 0 and 20),
   code_spins_earned integer not null default 0 check (code_spins_earned between 0 and 400),
   code_spin_awards jsonb not null default '{}'::jsonb check (jsonb_typeof(code_spin_awards) = 'object'),
@@ -177,6 +178,7 @@ select
   count(*)::integer
 from spin_task_claims claims
 join spin_campaign_rounds rounds on rounds.id = claims.round_id
+where claims.task_type in ('like', 'repost', 'comment')
 group by claims.user_id, claims.campaign_id
 on conflict (user_id, campaign_id) do update set
   task_claimed_bits = spin_user_campaign_progress.task_claimed_bits | excluded.task_claimed_bits,

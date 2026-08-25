@@ -198,10 +198,10 @@ export async function claimCampaignTask(user: SpinUser, task: TaskType) {
     `;
     const start = starts[0];
     if (!start) {
-      throw new HttpError(409, "Open the task first to start its five-second timer.", "TASK_NOT_STARTED");
+      throw new HttpError(409, "Open the task first to start its reward timer.", "TASK_NOT_STARTED");
     }
     if (!start.ready) {
-      throw new HttpError(409, "Please wait for the five-second task timer to finish.", "TASK_TIMER_ACTIVE");
+      throw new HttpError(409, "Please wait for the task timer to finish.", "TASK_TIMER_ACTIVE");
     }
 
     const inserted = await markTaskReward(

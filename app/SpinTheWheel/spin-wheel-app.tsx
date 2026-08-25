@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { FormEvent, type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type TaskType = "like" | "repost" | "comment";
+type TaskType = "follow" | "like" | "repost" | "comment" | "notifications";
 type PrizeType = "GTD" | "FCFS1" | "FCFS2";
 type SpinResult = PrizeType | "NONE" | "REFUND";
 
@@ -90,10 +90,14 @@ class ApiRequestError extends Error {
   }
 }
 
-const TASKS: Array<{ id: TaskType; action: string; eyebrow: string; title: string; copy: string }> = [
-  { id: "like", action: "Like", eyebrow: "01 · SUPPORT", title: "Like the post", copy: "Open the post and like it properly on X. Your +1 spin and +1 point are added automatically after five seconds." },
-  { id: "repost", action: "Retweet", eyebrow: "02 · SHARE", title: "Retweet the post", copy: "Open the post and retweet it on X. Your +1 spin and +1 point are added automatically after five seconds." },
-  { id: "comment", action: "Comment", eyebrow: "03 · SPEAK", title: "Leave a comment", copy: "Open the post and leave a genuine reply. Your +1 spin and +1 point are added automatically after five seconds." },
+const PROJECT_X_URL = "https://x.com/BunnysHood";
+
+const TASKS: Array<{ id: TaskType; action: string; eyebrow: string; title: string; copy: string; target: "profile" | "post" }> = [
+  { id: "follow", action: "Follow", eyebrow: "01 · JOIN", title: "Follow Bunny Hood", copy: "Open the Bunny Hood X profile and follow the account properly.", target: "profile" },
+  { id: "like", action: "Like", eyebrow: "02 · SUPPORT", title: "Like the post", copy: "Open the campaign post and like it properly on X.", target: "post" },
+  { id: "repost", action: "Retweet", eyebrow: "03 · SHARE", title: "Retweet the post", copy: "Open the campaign post and retweet it properly on X.", target: "post" },
+  { id: "comment", action: "Comment", eyebrow: "04 · SPEAK", title: "Leave a comment", copy: "Open the campaign post and leave a genuine reply.", target: "post" },
+  { id: "notifications", action: "Turn notifications on", eyebrow: "05 · STAY CLOSE", title: "Turn notifications on", copy: "Open the Bunny Hood X profile and turn on post notifications properly.", target: "profile" },
 ];
 
 type TaskTimer = { intervalId: number; claimId?: number };
@@ -362,7 +366,9 @@ export function SpinWheelApp() {
     if (!state?.campaign || claimed.has(task) || taskTimers.current[task]) return;
     setTaskWorking((current) => ({ ...current, [task]: true }));
     setMessage("");
-    window.open(state.campaign.tweetUrl, "_blank", "noopener,noreferrer");
+    const taskDefinition = TASKS.find((item) => item.id === task);
+    const taskUrl = taskDefinition?.target === "profile" ? PROJECT_X_URL : state.campaign.tweetUrl;
+    window.open(taskUrl, "_blank", "noopener,noreferrer");
     try {
       const started = await requestJson<{ completed: boolean; alreadyClaimed: boolean; spinsAwarded: number; readyAt: string; waitMs: number }>("/api/spin/tasks/start", {
         method: "POST",
@@ -373,7 +379,7 @@ export function SpinWheelApp() {
         await loadState();
       } else {
         scheduleTaskRecovery(task, started.readyAt, started.waitMs);
-        setMessage("Complete the action properly on X. Your reward will be added automatically when the five-second timer ends.");
+        setMessage("Complete the action properly on X. Your reward will be added automatically.");
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "The task could not be completed.");

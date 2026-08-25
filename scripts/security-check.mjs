@@ -28,6 +28,7 @@ const migration = [
   "005_wallet_submission_control.sql",
   "006_production_data_platform.sql",
   "007_unique_campaign_winners.sql",
+  "008_five_campaign_tasks.sql",
 ].map((name) => readFileSync(join(root, "db/migrations", name), "utf8")).join("\n");
 const wheel = readFileSync(join(root, "lib/spin/wheel.ts"), "utf8");
 const campaigns = readFileSync(join(root, "lib/spin/campaigns.ts"), "utf8");
@@ -80,7 +81,7 @@ if (!/startCampaignTask/.test(campaigns) || !/scheduleTaskRecovery/.test(wheelAp
 if (/claimCampaignTask|await wait/.test(taskStartRoute)) failures.push("Task start blocks instead of returning the visible countdown immediately.");
 if (!/settleMaturedCampaignTasks/.test(`${wheel}\n${campaigns}`)) failures.push("Interrupted automatic task recovery is missing.");
 if (!/wait_ms/.test(campaigns) || !/serverWaitMs/.test(wheelApp) || !/TASK_TIMER_ACTIVE/.test(wheelApp)) failures.push("One-click tasks are not protected from client clock skew or early claim timing.");
-if (/Open once · auto reward|Securing reward/.test(wheelApp) || !/action: "Like"/.test(wheelApp) || !/action: "Retweet"/.test(wheelApp) || !/action: "Comment"/.test(wheelApp)) failures.push("Task buttons do not use the requested direct action labels.");
+if (/Open once · auto reward|Securing reward/.test(wheelApp) || !/action: "Follow"/.test(wheelApp) || !/action: "Like"/.test(wheelApp) || !/action: "Retweet"/.test(wheelApp) || !/action: "Comment"/.test(wheelApp) || !/action: "Turn notifications on"/.test(wheelApp)) failures.push("Task buttons do not use the requested direct action labels.");
 if (!/setTimeout\(\(\) => setMessage\(""\), 5_000\)/.test(wheelApp)) failures.push("Five-second task notification dismissal is missing.");
 if (!/bunny-hood-logo\.png/.test(wheelApp)) failures.push("The new Bunny Hood hero logo is missing.");
 if (/liked_tweets|referenced_tweets|tasks\/verify|verifyOnX/.test(`${campaigns}\n${xIntegration}`)) failures.push("Paid X task verification code is still present.");
@@ -107,7 +108,8 @@ if (/flushSheetOutbox|queueSheetSync|sheetSynced|Google Sheets will retry/.test(
 if (!/spins_earned = spins_available \+ spins_used/.test(migration) || !/spins_earned = spins_earned \+/.test(`${campaigns}\n${users}\n${wheel}`)) failures.push("Permanent lifetime spin accounting is missing.");
 if (!/spins_processed bigint not null default 0/.test(migration) || !/spin_campaign_draw_counters/.test(`${wheel}\n${adminData}`) || !/spin_campaign_counters/.test(wheel)) failures.push("Permanent campaign attempt and participant pacing is missing.");
 if (!/spin_daily_rollups/.test(migration) || !/RAW_SPIN_RETENTION_HOURS = 72/.test(maintenance)) failures.push("Bounded raw-event retention and permanent rollups are missing.");
-if (!/spin_user_campaign_progress/.test(migration) || !/task_claimed_bits bigint/.test(migration) || !/code_redeemed_bits bigint/.test(migration)) failures.push("Compact per-campaign reward eligibility is missing.");
+if (!/spin_user_campaign_progress/.test(migration) || !/task_claimed_bits bigint/.test(migration) || !/extra_task_claimed_bits bigint/.test(migration) || !/code_redeemed_bits bigint/.test(migration)) failures.push("Compact per-campaign reward eligibility is missing.");
+if (!/task_type in \('follow', 'like', 'repost', 'comment', 'notifications'\)/.test(migration) || !/task_rewards_earned between 0 and 100/.test(migration)) failures.push("Five-task campaign reward storage is missing.");
 if (/insert into spin_task_claims|insert into spin_code_redemptions/.test(`${campaigns}\n${wheel}`) || !/markTaskReward/.test(progress) || !/markCodeReward/.test(progress)) failures.push("Runtime rewards still create one permanent row per task or code claim.");
 if (!/metric_shard smallint/.test(migration) || !/spin_campaign_counters/.test(migration) || !/userMetricShard/.test(wheel)) failures.push("High-concurrency campaign counters are not sharded.");
 if (!/insert into spin_daily_rollups/.test(wheel) || !/rollup_recorded/.test(wheel) || !/if \(winId\)/.test(wheel)) failures.push("Spin attempts are not written directly to compact permanent rollups.");

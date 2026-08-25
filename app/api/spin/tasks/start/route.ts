@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     await assertPublicStorageWritable();
     const user = await requireSessionUser(request, true);
     const body = await readJson<{ task?: string }>(request);
-    if (!body.task || !["like", "repost", "comment"].includes(body.task)) {
+    if (!body.task || !["follow", "like", "repost", "comment", "notifications"].includes(body.task)) {
       throw new HttpError(400, "Choose a valid campaign task.", "BAD_TASK");
     }
     const task = body.task as TaskType;

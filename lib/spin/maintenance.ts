@@ -77,6 +77,7 @@ export async function runSpinMaintenance() {
         count(*)::integer
       from spin_task_claims claims
       join spin_campaign_rounds rounds on rounds.id = claims.round_id
+      where claims.task_type in ('like', 'repost', 'comment')
       group by claims.user_id, claims.campaign_id
       on conflict (user_id, campaign_id) do update set
         task_claimed_bits = spin_user_campaign_progress.task_claimed_bits | excluded.task_claimed_bits,
