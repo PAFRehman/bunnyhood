@@ -545,7 +545,7 @@ export function SpinWheelApp() {
             <div className="spin-hero-logo"><Image src="/assets/bunny-hood-logo.png" alt="Bunny Hood" width={2048} height={1732} sizes="(max-width: 690px) 126px, 235px" priority /></div>
             <h1>SPIN<br /><em>THE HOOD.</em></h1>
           </div>
-          <p>Connect X, complete each five-second campaign task, redeem the live code, and spin one-by-one or process them instantly.</p>
+          <p>Connect X, complete each campaign task, redeem the live code, and Spin the Wheel.</p>
           <div className="community-proof" aria-label="Bunny Hood connected community">
             <div><strong>{state?.community.connectedUsers ?? 0}</strong><span>UNIQUE X USERS CONNECTED</span></div>
           </div>
