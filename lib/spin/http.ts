@@ -56,10 +56,9 @@ export function routeError(error: unknown) {
   const message = error instanceof Error ? error.message : "Unknown error";
   const stack = error instanceof Error ? error.stack : undefined;
   console.error("Spin Wheel request failed.", message, stack);
-  return json({ 
-    error: `Internal Error: ${message}`, 
+  return json({
+    error: "The request could not be completed.",
     code: "SERVER_ERROR",
-    debug: stack
   }, 500);
 }
 
@@ -87,4 +86,3 @@ export function secureCookie(
   if (process.env.NODE_ENV === "production") parts.push("Secure");
   return parts.join("; ");
 }
-

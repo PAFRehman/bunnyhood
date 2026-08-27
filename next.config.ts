@@ -10,6 +10,12 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  outputFileTracingIncludes: {
+    "/api/rabbithole/image/*": [
+      "./public/assets/rabbit-hole-box.png",
+      "./public/assets/bunny-hood-mark.webp",
+    ],
+  },
   async redirects() {
     return [
       {
