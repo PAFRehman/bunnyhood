@@ -9,30 +9,41 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-type OAuthPayload = { state: string; verifier: string; referralCode?: string | null; exp: number };
+type OAuthPayload = {
+  state: string;
+  verifier: string;
+  referralCode?: string | null;
+  returnTo?: "/RabbitHole";
+  exp: number;
+};
 
-function redirectWithError(code: string) {
-  return Response.redirect(`${getAppUrl()}/SpinTheWheel?auth_error=${encodeURIComponent(code)}`, 303);
+function safeTarget(payload: OAuthPayload | null) {
+  return payload?.returnTo === "/RabbitHole" ? "/RabbitHole" : "/SpinTheWheel";
+}
+
+function redirectWithError(code: string, target = "/SpinTheWheel") {
+  return Response.redirect(`${getAppUrl()}${target}?auth_error=${encodeURIComponent(code)}`, 303);
 }
 
 export async function GET(request: Request) {
   try {
     await assertPublicStorageWritable();
     const url = new URL(request.url);
-    if (url.searchParams.get("error")) return redirectWithError("x_denied");
     const code = url.searchParams.get("code") ?? "";
     const state = url.searchParams.get("state") ?? "";
     const cookie = getCookie(request, OAUTH_COOKIE) ?? "";
     const payload = unseal<OAuthPayload>(cookie);
+    const target = safeTarget(payload);
+    if (url.searchParams.get("error")) return redirectWithError("x_denied", target);
     if (!code || !state || !payload || payload.exp < Date.now() || !safeEqual(state, payload.state)) {
-      return redirectWithError("invalid_state");
+      return redirectWithError("invalid_state", target);
     }
     const token = await exchangeAuthorizationCode(code, payload.verifier);
     const profile = await fetchXMe(token.access_token);
     const account = await upsertXUser(profile, token, payload.referralCode);
     const session = await createSession(account.userId);
     const headers = new Headers({
-      location: `${getAppUrl()}/SpinTheWheel?connected=1${account.referralApplied ? "&referral=accepted" : ""}`,
+      location: `${getAppUrl()}${target}?connected=1${account.referralApplied ? "&referral=accepted" : ""}`,
       "cache-control": "no-store",
       "referrer-policy": "no-referrer",
     });
@@ -44,6 +55,7 @@ export async function GET(request: Request) {
     }));
     return new Response(null, { status: 303, headers });
   } catch {
-    return redirectWithError("x_connection_failed");
+    const payload = unseal<OAuthPayload>(getCookie(request, OAUTH_COOKIE) ?? "");
+    return redirectWithError("x_connection_failed", safeTarget(payload));
   }
 }

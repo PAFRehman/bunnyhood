@@ -29,6 +29,7 @@ const migration = [
   "006_production_data_platform.sql",
   "007_unique_campaign_winners.sql",
   "008_five_campaign_tasks.sql",
+  "009_rabbit_hole_sbt.sql",
 ].map((name) => readFileSync(join(root, "db/migrations", name), "utf8")).join("\n");
 const wheel = readFileSync(join(root, "lib/spin/wheel.ts"), "utf8");
 const campaigns = readFileSync(join(root, "lib/spin/campaigns.ts"), "utf8");
@@ -47,6 +48,11 @@ const storageSafety = readFileSync(join(root, "lib/spin/storage-safety.ts"), "ut
 const homepage = readFileSync(join(root, "app/page.tsx"), "utf8");
 const xIntegration = readFileSync(join(root, "lib/spin/x.ts"), "utf8");
 const xStart = readFileSync(join(root, "app/api/spin/auth/x/start/route.ts"), "utf8");
+const rabbitContract = readFileSync(join(root, "contracts/BunnyHoodRabbitHoleSBT.sol"), "utf8");
+const rabbitClaim = readFileSync(join(root, "lib/rabbit-hole/claim.ts"), "utf8");
+const rabbitData = readFileSync(join(root, "lib/rabbit-hole/data.ts"), "utf8");
+const rabbitPage = readFileSync(join(root, "app/RabbitHole/page.tsx"), "utf8");
+const rabbitArt = readFileSync(join(root, "lib/rabbit-hole/art.ts"), "utf8");
 const storageGatedRoutes = [
   "app/api/spin/auth/x/start/route.ts",
   "app/api/spin/auth/x/callback/route.ts",
@@ -57,12 +63,16 @@ const storageGatedRoutes = [
   "app/api/spin/tasks/claim/route.ts",
   "app/api/spin/wins/[winId]/wallet/route.ts",
   "app/api/admin/spin/campaign/route.ts",
+  "app/api/rabbit-hole/auth/x/start/route.ts",
+  "app/api/rabbit-hole/claim/route.ts",
 ].map((name) => ({ name, source: readFileSync(join(root, name), "utf8") }));
 const failures = [];
 
 if (/NEXT_PUBLIC_(?:X_|DATABASE|TOKEN_|CODE_|PRIZE_|RATE_|ADMIN_|CRON_|GOOGLE_)/.test(source)) {
   failures.push("A private environment variable was exposed with NEXT_PUBLIC_.");
 }
+if (/NEXT_PUBLIC_(?:RABBIT_HOLE|ROBINHOOD)/.test(source)) failures.push("A Rabbit Hole contract, RPC, or signer setting was exposed to browser code.");
+if (/AUCTION_(?:MAINNET|TESTNET)|USDG_(?:MAINNET|TESTNET)|api\/admin\/auction/.test(source)) failures.push("Retired auction configuration or API code remains in the repository.");
 if (/script\.google\.com\/macros\/s\/(?!REPLACE_ME)[A-Za-z0-9_-]{20,}\/exec/.test(source)) {
   failures.push("A real Google Apps Script URL appears in tracked source.");
 }
@@ -132,6 +142,15 @@ if (!/xShareUrl\([\s\S]{0,180}referralLink/.test(wheelApp)) failures.push("Refer
 if (/GTD LEFT|FCFS1 LEFT|FCFS2 LEFT|Daily prize inventory/.test(wheelApp)) failures.push("Private prize counts are exposed in the public UI.");
 if (!/Total GTD/.test(adminApp) || !/Expected unique users/.test(adminApp) || !/Unique winners selected/.test(adminApp)) failures.push("Admin campaign controls are incomplete.");
 if (/GTD_NOT_RAREST|GTD must be lower than both FCFS/.test(campaigns)) failures.push("Admin still forces GTD totals below both FCFS totals.");
+if (!/function locked\(uint256 tokenId\)/.test(rabbitContract) || !/0xb45a3c0e/.test(rabbitContract)) failures.push("Rabbit Hole contract is missing EIP-5192 locking support.");
+if (!/function approve\([^)]*\) external pure[\s\S]*?revert Soulbound\(\)/.test(rabbitContract) || !/function transferFrom\([^)]*\) external pure[\s\S]*?revert Soulbound\(\)/.test(rabbitContract) || (rabbitContract.match(/function safeTransferFrom/g) ?? []).length !== 2) failures.push("Rabbit Hole SBT exposes a transferable or approvable ERC-721 path.");
+if (/function burn\(/.test(rabbitContract)) failures.push("Rabbit Hole SBT unexpectedly contains a burn path.");
+if (!/AlreadyMinted\(bytes32 claimKey\)/.test(rabbitContract) || !/AlreadyOwnsSoulboundToken/.test(rabbitContract) || !/tokenOfClaim/.test(rabbitClaim)) failures.push("Onchain duplicate X and wallet claim protection is incomplete.");
+if (!/MAX_RABBIT_HOLE_ELIGIBLE = 100/.test(source) || !/rabbit_hole_active_wallet_unique/.test(migration)) failures.push("The 100-user cap or permanent wallet uniqueness is missing.");
+if (!/x_user_id = \$1/.test(rabbitData) || !/bindAuthenticatedEligibility/.test(rabbitClaim)) failures.push("Eligible usernames are not bound to authenticated X identities.");
+if (!/verifyAdminTicket/.test(rabbitPage) || !/isRabbitHolePublic/.test(rabbitPage)) failures.push("Rabbit Hole admin-preview gate is missing.");
+if (!/ALLOWED_PFP_HOSTS/.test(rabbitArt) || !/MAX_PFP_BYTES/.test(rabbitArt)) failures.push("X profile image snapshot fetching is not host and size bounded.");
+if (/debug:\s*stack|Internal Error:/.test(readFileSync(join(root, "lib/spin/http.ts"), "utf8"))) failures.push("Internal server stack details are exposed to clients.");
 
 if (failures.length) {
   for (const failure of failures) console.error(`FAIL: ${failure}`);

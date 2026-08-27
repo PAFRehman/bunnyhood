@@ -27,6 +27,11 @@ const nextConfig: NextConfig = {
         destination: "/SpinTheWheel",
         permanent: false,
       },
+      {
+        source: "/auction/:path*",
+        destination: "/RabbitHole",
+        permanent: true,
+      },
     ];
   },
   async headers() {
