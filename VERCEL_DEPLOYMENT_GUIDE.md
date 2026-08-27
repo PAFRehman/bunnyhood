@@ -9,6 +9,9 @@
 5. Push to `main` and wait for the Vercel deployment to show **Ready**.
 6. Open `/SpinTheWheel`; the production schema upgrade runs automatically.
 7. Open `/admin/spin` to verify live totals and download either the complete Excel snapshot or a mobile-friendly CSV. Use individual CSV files for large datasets.
+8. Open `/RabbitHole` from the admin panel. It remains admin-only until the page guard is intentionally removed.
+
+Rabbit Hole claims stay disabled until its separately deployed SBT contract, deployment block, private RPC, and dedicated low-balance minter are configured. Follow `docs/RABBIT_HOLE_DEPLOYMENT.md`; never reuse or upload the offline owner/deployer key.
 
 ## First deployment
 

@@ -1,18 +1,27 @@
 import { createHash } from "node:crypto";
-import { getAppUrl, getXConfig, OAUTH_COOKIE } from "@/lib/spin/config";
-import { routeError, secureCookie } from "@/lib/spin/http";
-import { randomToken, seal } from "@/lib/spin/security";
+import { ADMIN_COOKIE, getAppUrl, getXConfig, OAUTH_COOKIE } from "@/lib/spin/config";
+import { getCookie, HttpError, routeError, secureCookie } from "@/lib/spin/http";
+import { randomToken, seal, verifyAdminTicket } from "@/lib/spin/security";
 import { assertPublicStorageWritable } from "@/lib/spin/storage-safety";
 import { normalizeReferralCode, validReferralCode } from "@/lib/spin/users";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function safeReturnTo(value: string | null) {
+  return value === "/RabbitHole" ? "/RabbitHole" : "/SpinTheWheel";
+}
+
 export async function GET(request: Request) {
   try {
-    await assertPublicStorageWritable();
     const requestUrl = new URL(request.url);
     const requestedReferralCode = normalizeReferralCode(requestUrl.searchParams.get("ref") ?? "");
+    const returnTo = safeReturnTo(requestUrl.searchParams.get("next"));
+    const adminTicket = returnTo === "/RabbitHole" ? getCookie(request, ADMIN_COOKIE) : null;
+    if (returnTo === "/RabbitHole" && !verifyAdminTicket(adminTicket ?? undefined)) {
+      throw new HttpError(401, "Admin sign-in required.", "ADMIN_AUTH_REQUIRED");
+    }
+    await assertPublicStorageWritable();
     const state = randomToken(24);
     const verifier = randomToken(48);
     const challenge = createHash("sha256").update(verifier).digest("base64url");
@@ -20,6 +29,8 @@ export async function GET(request: Request) {
       state,
       verifier,
       referralCode: validReferralCode(requestedReferralCode) ? requestedReferralCode : null,
+      returnTo,
+      adminTicket,
       exp: Date.now() + 10 * 60_000,
     });
     const { clientId, redirectUri } = getXConfig();

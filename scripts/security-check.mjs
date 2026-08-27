@@ -3,7 +3,7 @@ import { join, relative } from "node:path";
 
 const root = process.cwd();
 const skipped = new Set([".git", ".next", "node_modules"]);
-const textExtensions = new Set([".ts", ".tsx", ".js", ".mjs", ".json", ".md", ".sql", ".example", ".gs"]);
+const textExtensions = new Set([".ts", ".tsx", ".js", ".mjs", ".json", ".md", ".sql", ".sol", ".example", ".gs"]);
 
 function filesIn(directory) {
   return readdirSync(directory).flatMap((name) => {
@@ -29,6 +29,7 @@ const migration = [
   "006_production_data_platform.sql",
   "007_unique_campaign_winners.sql",
   "008_five_campaign_tasks.sql",
+  "009_rabbit_hole_claims.sql",
 ].map((name) => readFileSync(join(root, "db/migrations", name), "utf8")).join("\n");
 const wheel = readFileSync(join(root, "lib/spin/wheel.ts"), "utf8");
 const campaigns = readFileSync(join(root, "lib/spin/campaigns.ts"), "utf8");
@@ -47,6 +48,12 @@ const storageSafety = readFileSync(join(root, "lib/spin/storage-safety.ts"), "ut
 const homepage = readFileSync(join(root, "app/page.tsx"), "utf8");
 const xIntegration = readFileSync(join(root, "lib/spin/x.ts"), "utf8");
 const xStart = readFileSync(join(root, "app/api/spin/auth/x/start/route.ts"), "utf8");
+const rabbitContract = readFileSync(join(root, "contracts/src/BunnyHoodRabbitHoleSBT.sol"), "utf8");
+const rabbitPage = readFileSync(join(root, "app/RabbitHole/rabbit-hole-app.tsx"), "utf8");
+const rabbitClaimRoute = readFileSync(join(root, "app/api/rabbithole/claim/route.ts"), "utf8");
+const rabbitAllowlistRoute = readFileSync(join(root, "app/api/rabbithole/allowlist/route.ts"), "utf8");
+const rabbitClaims = readFileSync(join(root, "lib/rabbithole/claims.ts"), "utf8");
+const rabbitConfig = readFileSync(join(root, "lib/rabbithole/config.ts"), "utf8");
 const storageGatedRoutes = [
   "app/api/spin/auth/x/start/route.ts",
   "app/api/spin/auth/x/callback/route.ts",
@@ -60,7 +67,7 @@ const storageGatedRoutes = [
 ].map((name) => ({ name, source: readFileSync(join(root, name), "utf8") }));
 const failures = [];
 
-if (/NEXT_PUBLIC_(?:X_|DATABASE|TOKEN_|CODE_|PRIZE_|RATE_|ADMIN_|CRON_|GOOGLE_)/.test(source)) {
+if (/NEXT_PUBLIC_(?:X_|DATABASE|TOKEN_|CODE_|PRIZE_|RATE_|ADMIN_|CRON_|GOOGLE_|RABBITHOLE_)/.test(source)) {
   failures.push("A private environment variable was exposed with NEXT_PUBLIC_.");
 }
 if (/script\.google\.com\/macros\/s\/(?!REPLACE_ME)[A-Za-z0-9_-]{20,}\/exec/.test(source)) {
@@ -132,6 +139,18 @@ if (!/xShareUrl\([\s\S]{0,180}referralLink/.test(wheelApp)) failures.push("Refer
 if (/GTD LEFT|FCFS1 LEFT|FCFS2 LEFT|Daily prize inventory/.test(wheelApp)) failures.push("Private prize counts are exposed in the public UI.");
 if (!/Total GTD/.test(adminApp) || !/Expected unique users/.test(adminApp) || !/Unique winners selected/.test(adminApp)) failures.push("Admin campaign controls are incomplete.");
 if (/GTD_NOT_RAREST|GTD must be lower than both FCFS/.test(campaigns)) failures.push("Admin still forces GTD totals below both FCFS totals.");
+if (/\/auction|AUCTION_MAINNET|AUCTION_TESTNET/.test(source)) failures.push("The removed auction system is still referenced.");
+if (!/href="\/RabbitHole"/.test(adminApp)) failures.push("The admin panel does not link to Rabbit Hole.");
+if (!/rabbit_hole_allowlist/.test(migration) || !/rabbit_hole_claims/.test(migration)) failures.push("Permanent Rabbit Hole eligibility and claim tables are missing.");
+if (!/Rabbit Hole allowlist is limited to 100 eligible users/.test(migration) || !/MAX_SUPPLY = 100/.test(rabbitContract)) failures.push("The 100-user Rabbit Hole cap is not enforced in both database and contract.");
+if (!/function locked\(uint256 tokenId\)/.test(rabbitContract) || !/revert Soulbound\(\)/.test(rabbitContract) || !/_ownerOf\(tokenId\) != address\(0\)/.test(rabbitContract)) failures.push("The Rabbit Hole token is not permanently soulbound.");
+if (!/requireSpinAdmin\(request\)/.test(rabbitClaimRoute) || !/requireSessionUser\(request, true\)/.test(rabbitClaimRoute) || !/assertSameOrigin\(request\)/.test(rabbitClaimRoute)) failures.push("Rabbit Hole claims are not protected by admin, X session, CSRF, and same-origin checks.");
+if (!/requireSpinAdmin\(request\)/.test(rabbitAllowlistRoute) || !/assertSameOrigin\(request\)/.test(rabbitAllowlistRoute)) failures.push("Rabbit Hole allowlist writes are not admin and same-origin protected.");
+if (!/claimKeyForXUser/.test(rabbitClaims) || !/readOnchainRabbitClaim/.test(rabbitClaims) || !/rabbit-hole-minter-nonce/.test(source)) failures.push("Rabbit Hole mint idempotency or cross-instance nonce serialization is missing.");
+if (/minterPrivateKey[,}]/.test(rabbitPage) || /NEXT_PUBLIC_RABBITHOLE/.test(source) || !/RABBITHOLE_MINTER_PRIVATE_KEY/.test(rabbitConfig)) failures.push("Rabbit Hole minter secret boundaries are invalid.");
+if (!/\/api\/rabbithole\/image\//.test(rabbitPage) || !/rabbit-hole-box\.png/.test(source)) failures.push("The personalized Rabbit Hole box render is missing.");
+if (!/returnTo/.test(xStart) || !/\/RabbitHole/.test(xStart)) failures.push("X OAuth cannot safely return to Rabbit Hole.");
+if (/debug:\s*stack|Internal Error:/.test(readFileSync(join(root, "lib/spin/http.ts"), "utf8"))) failures.push("Internal server errors are exposed to clients.");
 
 if (failures.length) {
   for (const failure of failures) console.error(`FAIL: ${failure}`);

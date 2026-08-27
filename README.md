@@ -7,6 +7,7 @@ Production Next.js application for Bunny Hood on Vercel.
 - `/` — collection website and roadmap
 - `/SpinTheWheel` — X-connected rewards, referrals, code redemption, wheel, wins, and wallets
 - `/admin/spin` — private live Neon control room with Excel and CSV exports
+- `/RabbitHole` — admin-gated 100-user X eligibility and real-time soulbound box claims
 
 Old `/getWL`, `/whitelist`, `/spin`, and lowercase wheel links redirect to `/SpinTheWheel`.
 
@@ -26,6 +27,8 @@ Neon PostgreSQL is the only source of truth. Google Sheets and Apps Script are n
 - At 490 MiB, a server-side storage guard automatically blocks every public write and replaces the wheel with a "Next spin batch coming soon" screen. Admin reads, exports, and safe cleanup remain available, and no permanent record is deleted by the guard.
 
 The first authenticated request after deployment applies migration `006` automatically and preserves all existing data. The SQL file remains in `db/migrations/006_production_data_platform.sql` for auditing or manual recovery.
+
+Rabbit Hole applies migration `009` automatically on its first request. Its SBT is capped at 100, cannot be transferred, approved, sold, or burned, and uses a dedicated server-side minter to sponsor claims. See [docs/RABBIT_HOLE_DEPLOYMENT.md](docs/RABBIT_HOLE_DEPLOYMENT.md) before enabling real mints.
 
 ## Local checks
 
