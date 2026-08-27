@@ -2,7 +2,7 @@
   "name": "bunny-hood",
   "version": "0.1.0",
   "private": true,
-  "description": "Bunny Hood NFT collection and daily Spin the Wheel rewards experience for Vercel",
+  "description": "Bunny Hood collection, Spin the Wheel, and Rabbit Hole soulbound identity experience",
   "engines": {
     "node": "22.x"
   },
@@ -12,8 +12,12 @@
     "start": "next start",
     "lint": "eslint .",
     "security:check": "node scripts/security-check.mjs",
+    "contract:compile": "node scripts/compile-sbt.mjs",
+    "contract:check": "node scripts/check-sbt.mjs",
+    "contract:deploy": "node scripts/deploy-sbt.mjs",
+    "test:rabbit-hole:routes": "node scripts/smoke-rabbit-hole.mjs",
     "generate:secrets": "node scripts/generate-secrets.mjs",
-    "test": "npm run lint && npm run security:check && npm run build"
+    "test": "npm run lint && npm run security:check && npm run contract:check && npm run build && npm run test:rabbit-hole:routes"
   },
   "dependencies": {
     "exceljs": "^4.4.0",
@@ -30,8 +34,12 @@
     "@types/react-dom": "19.2.3",
     "eslint": "9.39.4",
     "eslint-config-next": "^16.3.1",
+    "solc": "^0.8.36",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3"
+  },
+  "overrides": {
+    "tmp": "^0.2.7"
   },
   "type": "module",
   "displayName": "Bunny Hood"

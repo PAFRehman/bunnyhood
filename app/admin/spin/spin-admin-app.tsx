@@ -239,6 +239,11 @@ export function SpinAdminApp() {
     try {
       await adminRequest("/api/admin/spin/login", { method: "POST", body: JSON.stringify({ password }) });
       setPassword("");
+      const next = new URLSearchParams(window.location.search).get("next");
+      if (next === "/RabbitHole") {
+        window.location.assign(next);
+        return;
+      }
       await loadDashboard();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Admin sign-in failed.");
@@ -366,10 +371,10 @@ export function SpinAdminApp() {
   if (needsLogin) {
     return (
       <main className="spin-admin-page"><div className="spin-admin-shell">
-        <div className="spin-admin-brand"><strong>BUNNY HOOD · DATA ADMIN</strong><a href="/SpinTheWheel">Open wheel</a></div>
+        <div className="spin-admin-brand"><strong>BUNNY HOOD · DATA ADMIN</strong><div><a href="/RabbitHole">Rabbit Hole</a><a href="/SpinTheWheel">Open wheel</a></div></div>
         <section className="admin-login"><div className="admin-card">
           <p className="section-kicker">PRIVATE CONTROL ROOM</p><h1>Admin sign in.</h1>
-          <p>Manage campaigns, wallet permissions, permanent Neon records, storage health, and private Excel exports.</p>
+          <p>Manage campaigns, Rabbit Hole SBT eligibility, wallet permissions, permanent Neon records, storage health, and private exports.</p>
           <form onSubmit={login}><div className="admin-field"><label htmlFor="admin-password">Admin password</label><input id="admin-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required autoComplete="current-password" /></div><button className="admin-submit" disabled={busy}>{busy ? "Checking…" : "Enter control room"}</button></form>
           {message && <p className="spin-error">{message}</p>}
         </div></section>
@@ -383,7 +388,7 @@ export function SpinAdminApp() {
 
   return (
     <main className="spin-admin-page"><div className="spin-admin-shell">
-      <div className="spin-admin-brand"><strong>BUNNY HOOD · DATA ADMIN</strong><div><span className="admin-live"><i /> LIVE · 5S</span><a href="/auction">Auction</a><a href="/SpinTheWheel">Open wheel</a><button onClick={logout} type="button">Sign out</button></div></div>
+      <div className="spin-admin-brand"><strong>BUNNY HOOD · DATA ADMIN</strong><div><span className="admin-live"><i /> LIVE · 5S</span><a href="/RabbitHole">Rabbit Hole</a><a href="/SpinTheWheel">Open wheel</a><button onClick={logout} type="button">Sign out</button></div></div>
       <section className="admin-dashboard">
         <header><div><p className="section-kicker">PRIVATE CONTROL ROOM</p><h1>Run the Hood.<br /><em>Know the data.</em></h1></div><div className="admin-header-actions"><span>Last refresh · {new Date(dashboard.generatedAt).toLocaleTimeString()}</span>{exportControls}</div></header>
 
