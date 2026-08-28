@@ -1,8 +1,9 @@
 # Rabbit Hole SBT deployment
 
-`/RabbitHole` replaces the retired auction system. It is admin-only while
-`RABBIT_HOLE_PUBLIC=false`. New claims pin a personalized PNG and metadata to
-IPFS before minting; public PNG endpoints also support user downloads.
+`/RabbitHole` replaces the retired auction system and is public by default.
+`RABBIT_HOLE_PAUSED=true` is an emergency stop that retains admin recovery
+access. New claims pin a personalized PNG and metadata to IPFS before minting;
+public PNG endpoints also support user downloads.
 
 ## Contract guarantees
 
@@ -42,9 +43,9 @@ npm run contract:compile
 npm run contract:deploy
 ```
 
-Copy the printed contract address into Vercel as
-`RABBIT_HOLE_TESTNET_CONTRACT_ADDRESS`. Keep `RABBIT_HOLE_PUBLIC=false` during
-the admin test. Use a dedicated funded minter wallet; never use a personal main
+Copy the printed contract address into a Preview/local environment as
+`RABBIT_HOLE_TESTNET_CONTRACT_ADDRESS`. Production application runtime is
+mainnet-only. Use a dedicated funded minter wallet; never use a personal main
 wallet or expose the key with `NEXT_PUBLIC_`.
 
 ## Pinata/IPFS
@@ -57,15 +58,20 @@ PINATA_JWT=...
 PINATA_GATEWAY_URL=https://your-dedicated-gateway.mypinata.cloud
 ```
 
-`PINATA_GATEWAY_URL` is optional and defaults to Pinata's public gateway.
+`PINATA_GATEWAY_URL` is optional and defaults to Pinata's public gateway. It
+must be a public HTTPS origin without a query token. Invalid values safely fall
+back to the public gateway instead of breaking Rabbit Hole reads.
 `PINATA_JWT` is required for claims and must never use a `NEXT_PUBLIC_` prefix.
 The claim route first renders the supplied original box as a 1254×1254 PNG with
 the X PFP clipped to its empty front face. It pins that PNG, pins metadata that
-references the PNG's `ipfs://` CID, and only then sends the mint. Pin failures do
-not send a blockchain transaction.
+exposes the PNG through a public HTTPS CID URL while preserving its canonical
+`ipfs://` URI, and only then sends the mint. Pin failures do not send a
+blockchain transaction.
 
 IPFS stores the artwork and metadata bytes; the contract stores the immutable
-`ipfs://` metadata URI, token ownership, claim key, and soulbound state onchain.
+public HTTPS metadata CID URL, token ownership, claim key, and soulbound state
+onchain. The app requests a Blockscout metadata fetch after every confirmed mint;
+an admin can retry it from `/admin/rabbit-hole` with **REFRESH EXPLORER**.
 Keep Pinata billing active and replicate CIDs with a second pinning provider for
 long-term availability.
 
@@ -86,11 +92,13 @@ only a username, the first OAuth-authenticated account matching that exact handl
 is permanently bound to the row. Confirmed and in-flight claims are never deleted
 when the editable list is replaced. The admin table displays every claimed wallet
 in full and provides a copy action. After confirmation, the user can download the
-final PNG, open the X share composer, and view the IPFS and explorer records.
+final PNG, open the X share composer, and view the OpenSea and explorer records.
+IPFS CIDs remain visible to admins for storage and metadata diagnostics.
 
 ## Mainnet and public launch
 
 Deploy a separate mainnet contract with `RABBIT_HOLE_NETWORK=mainnet`, ideally
 using a multisig as `RABBIT_HOLE_OWNER_ADDRESS`. Set the printed address in
 `RABBIT_HOLE_MAINNET_CONTRACT_ADDRESS`, verify the contract and minter, run a
-controlled claim, and only then change `RABBIT_HOLE_PUBLIC=true`.
+controlled claim with `RABBIT_HOLE_PAUSED=true`, and only then set
+`RABBIT_HOLE_PAUSED=false` to open the public claim flow.

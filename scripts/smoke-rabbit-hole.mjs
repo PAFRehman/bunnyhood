@@ -12,7 +12,7 @@ async function startServer(isPublic) {
     [nextBin, "start", "--hostname", "127.0.0.1", "--port", String(port)],
     {
       cwd: root,
-      env: { ...process.env, RABBIT_HOLE_PUBLIC: isPublic ? "true" : "false" },
+      env: { ...process.env, RABBIT_HOLE_PAUSED: isPublic ? "false" : "true" },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
@@ -56,12 +56,20 @@ try {
   assert(page.status === 200, `Public Rabbit Hole returned ${page.status}.`);
   assert(html.includes("ENTER THE RABBIT HOLE"), "Rabbit Hole intro copy is missing from the rendered HTML.");
   assert(html.includes("rabbit-hole-box-original.png"), "The supplied Rabbit Hole master artwork is missing.");
-  assert(html.includes("pinned to IPFS"), "The IPFS-backed claim sequence is missing.");
+  assert(html.includes("Verify your X identity"), "The simplified X verification step is missing.");
+  assert(html.includes("Enter your wallet address"), "The simplified wallet step is missing.");
+  assert(html.includes("Mint your SBT onchain"), "The simplified mint step is missing.");
+  assert(!html.includes("PRIVATE ACCESS · SOULBOUND DROP"), "The retired private-drop copy remains.");
+  assert(!html.includes("100 identities. One permanent box each."), "The retired 100-identity intro copy remains.");
   assert(!html.toLowerCase().includes("auction"), "Retired auction copy remains on the Rabbit Hole page.");
 
   const legacy = await fetch(`http://127.0.0.1:${port}/auction/legacy`, { redirect: "manual" });
   assert(legacy.status === 308, `Legacy auction redirect returned ${legacy.status}.`);
   assert(legacy.headers.get("location") === "/RabbitHole", "Legacy auction redirect has the wrong target.");
+
+  const typoAlias = await fetch(`http://127.0.0.1:${port}/RabitHole`, { redirect: "manual" });
+  assert(typoAlias.status === 308, `Rabbit Hole typo alias returned ${typoAlias.status}.`);
+  assert(typoAlias.headers.get("location") === "/RabbitHole", "Rabbit Hole typo alias has the wrong target.");
 } finally {
   await stopServer(server);
 }

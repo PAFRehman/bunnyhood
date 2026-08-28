@@ -8,13 +8,13 @@ Bunny Hood is a production Next.js application deployed on Vercel. Its Rabbit Ho
 
 | Route | Purpose | Current access |
 | --- | --- | --- |
-| [`/RabbitHole`](https://www.bunnyhood.xyz/RabbitHole) | Eligibility search, X verification, wallet entry, realtime mint status, and SBT result | Admin-only while `RABBIT_HOLE_PUBLIC=false` |
+| [`/RabbitHole`](https://www.bunnyhood.xyz/RabbitHole) | Eligibility search, X verification, wallet entry, realtime mint status, and SBT result | Public; `RABBIT_HOLE_PAUSED=true` is the emergency stop |
 | [`/admin/rabbit-hole`](https://www.bunnyhood.xyz/admin/rabbit-hole) | Dedicated add/replace eligibility controls and full claim-wallet ledger | Admin password required |
 | [`/admin/spin?next=/RabbitHole`](https://www.bunnyhood.xyz/admin/spin?next=/RabbitHole) | Admin sign-in and redirect to Rabbit Hole | Admin password required |
 | [`/SpinTheWheel`](https://www.bunnyhood.xyz/SpinTheWheel) | X-connected rewards and wheel experience | Public |
 | `/auction/*` | Retired auction URLs | Permanently redirect to `/RabbitHole` |
 
-The Rabbit Hole metadata and PNG image endpoints remain public even in admin-preview mode so users can download their art and legacy records can still render. New claims use immutable `ipfs://` token URIs.
+The Rabbit Hole page, eligibility search, and claim flow are public. Admin list management remains password-protected. Metadata and PNG image endpoints are public so users can download their art and blockchain clients can render it. New claims pin immutable IPFS CIDs and expose them through public HTTPS gateway URLs so OpenSea, Blockscout, and wallets can load the artwork reliably.
 
 ## Contents
 
@@ -56,8 +56,8 @@ An eligible user receives:
 - One `Bunny Hood Rabbit Hole` token (`BHRH`) at the exact EVM address they entered.
 - A unique sequential token ID and onchain ownership record on the configured Robinhood Chain network.
 - A unique 1254×1254 PNG made from Bunny Hood's supplied original box design: the X PFP is perspective-fitted only into the empty front face, while the `BH` side, `?` lid, frame, glow, and shadow remain the original artwork.
-- Content-addressed NFT metadata and PNG artwork pinned to IPFS through Pinata. The contract permanently stores the resulting `ipfs://` metadata URI.
-- Links to the mint transaction and token page on the relevant Robinhood Chain explorer.
+- Content-addressed NFT metadata and PNG artwork pinned to IPFS through Pinata. The contract permanently stores a public HTTPS URL containing the immutable metadata CID; the metadata also retains the canonical `ipfs://` image URI.
+- Links to the mint transaction, Robinhood Chain explorer, and mainnet OpenSea item page.
 - **Download PNG** and **Share on X** actions after confirmation. X's web composer cannot accept an attached image from a URL, so the UI tells the user to download the PNG and attach it to the composed post.
 - A mint sponsored by Bunny Hood. The user connects X and enters an address; the app minter sends the blockchain transaction and pays its gas.
 
@@ -77,7 +77,7 @@ The SBT implements the final [ERC-5192 Minimal Soulbound NFT standard](https://e
 ## How a claim works
 
 1. An admin loads up to 100 X identities into the private eligibility manager.
-2. A visitor opens `/RabbitHole`. While the preview flag is off, the page and its search/claim APIs require the existing Bunny Hood admin session.
+2. A visitor opens the public `/RabbitHole` page and searches their X username.
 3. The visitor searches an X username. Search only reveals eligibility and claim status; it does not prove ownership.
 4. The visitor selects **CONNECT X TO CONTINUE**. OAuth 2.0 with PKCE requests only `tweet.read` and `users.read` and returns to `/RabbitHole`.
 5. The server matches the authenticated immutable X user ID to a pre-bound row. If the row only contains a username, the first authenticated X account with that exact handle permanently binds its X user ID to the row.
@@ -86,13 +86,13 @@ The SBT implements the final [ERC-5192 Minimal Soulbound NFT standard](https://e
 8. The server checks both the X-derived claim key and the wallet onchain to prevent a duplicate claim.
 9. The server downloads the user's current X profile picture from an approved X image host and stores a safe snapshot for the artwork.
 10. The renderer uses the supplied original PNG as its base and perspective-clips the PFP to the empty front-panel polygon. It does not draw a replacement cube or put one box inside another.
-11. The server pins the final PNG to Pinata, then pins metadata whose `image` is that PNG's `ipfs://` CID. If either pin fails, minting stops before a transaction is sent.
+11. The server pins the final PNG to Pinata, then pins metadata whose standard `image` field is the PNG's public HTTPS CID URL and whose `image_ipfs` field preserves the canonical `ipfs://` URI. If either pin fails, minting stops before a transaction is sent.
 12. Neon creates an auditable claim attempt, stores the full receiving wallet and both CIDs, and marks the row `minting` under database locks and uniqueness constraints.
-13. The server-side minter simulates and submits `mint(recipient, ipfsMetadataUri, claimKey)`. The UI shows the transaction and polls the chain every three seconds.
-14. After one confirmation, the server reads the token ID from `tokenOfClaim`, marks the row `claimed`, and enables download, IPFS, explorer, and X-share actions.
+13. The server-side minter simulates and submits `mint(recipient, immutableHttpsMetadataCidUrl, claimKey)`. The UI shows the transaction and polls the chain every three seconds.
+14. After one confirmation, the server reads the token ID from `tokenOfClaim`, marks the row `claimed`, requests an immediate Blockscout metadata fetch, and enables download, OpenSea, explorer, and X-share actions.
 15. If the HTTP request times out after submission, later polling reconciles the claim from `tokenOfClaim` instead of minting a second token.
 
-IPFS is content-addressed storage, not the blockchain itself. The PNG and metadata bytes live on IPFS; the `ipfs://` metadata URI, ownership, token ID, lock state, and claim key live onchain. All tokens come from the same deployed `BunnyHoodRabbitHoleSBT` address, so they are one collection with one name and symbol—not 100 separate collections.
+IPFS is content-addressed storage, not the blockchain itself. The PNG and metadata bytes live on IPFS; an immutable CID URL, ownership, token ID, lock state, and claim key live onchain. All tokens come from the same deployed `BunnyHoodRabbitHoleSBT` address, so they are one collection with one name and symbol—not 100 separate collections.
 
 The deterministic claim key is:
 
@@ -111,6 +111,7 @@ The username search is therefore only a discovery tool. Eligibility is finally e
 3. Paste new usernames into **ADD ELIGIBLE USERS** and select **ADD USERS**. This keeps everyone already loaded.
 4. Use **REPLACE WHOLE EDITABLE LIST** only when intentionally rebuilding the unclaimed portion of the ledger.
 5. Select **IMPORT LIST**, confirm the replacement, and verify the loaded/claimed/minting/failed counters and table.
+6. If an already-minted token shows Blockscout's generic NFT placeholder, select **REFRESH EXPLORER** on that claimed row. This retries Blockscout indexing without minting or changing the SBT.
 
 The form replaces the editable list; it is not an append-only import. Always paste every unclaimed user who should remain eligible.
 
@@ -253,16 +254,17 @@ The ERC-721 `Approval` and `ApprovalForAll` events are declared for interface co
 
 | Method and route | Access | Function |
 | --- | --- | --- |
-| `GET /RabbitHole` | Admin cookie unless `RABBIT_HOLE_PUBLIC=true` | Renders the complete Rabbit Hole experience and admin manager |
-| `GET /api/rabbit-hole/status?username=...` | Same Rabbit Hole access gate | Validates a username and returns public eligibility, claimed count, and network status |
-| `GET /api/rabbit-hole/me` | Same Rabbit Hole access gate | Returns X session identity, bound eligibility, counters, and network; reconciles an in-flight claim |
-| `GET /api/rabbit-hole/auth/x/start` | Same Rabbit Hole access gate | Starts X OAuth with PKCE and a sealed ten-minute state cookie |
-| `POST /api/rabbit-hole/claim` | Rabbit Hole access, authenticated X session, same origin | Validates and starts/reconciles a gas-sponsored SBT claim; limited to four attempts per five minutes per session identity |
+| `GET /RabbitHole` | Public unless emergency-paused | Renders the complete Rabbit Hole experience; the admin manager stays on its protected route |
+| `GET /api/rabbit-hole/status?username=...` | Public unless emergency-paused | Validates a username and returns public eligibility, claimed count, and network status |
+| `GET /api/rabbit-hole/me` | Public unless emergency-paused | Returns X session identity, bound eligibility, counters, and network; reconciles an in-flight claim |
+| `GET /api/rabbit-hole/auth/x/start` | Public unless emergency-paused | Starts X OAuth with PKCE and a sealed ten-minute state cookie |
+| `POST /api/rabbit-hole/claim` | Public route, authenticated X session, same origin | Validates and starts/reconciles a gas-sponsored SBT claim; limited to four attempts per five minutes per session identity |
 | `GET /api/rabbit-hole/metadata/:claimId` | Public | Returns wallet-compatible JSON metadata for a minting or claimed record |
 | `GET /api/rabbit-hole/image/:claimId` | Public | Returns the personalized PNG; `?download=1` sends it as an attachment |
 | `GET /api/admin/rabbit-hole/eligibility?search=...` | Admin only | Returns detailed rows and status counts |
 | `POST /api/admin/rabbit-hole/eligibility` | Admin and same-origin only | Parses and replaces the editable eligibility list |
 | `PUT /api/admin/rabbit-hole/eligibility` | Admin and same-origin only | Adds or updates entries without removing existing rows |
+| `POST /api/admin/rabbit-hole/refetch-metadata` | Admin and same-origin only | Requests a Blockscout metadata refresh for a confirmed token without reminting it |
 
 The public IPFS metadata and PNG intentionally reveal the X username, captured profile image, collection, contract, and chain associated with a public blockchain token. Do not use this drop for identities that require private metadata.
 
@@ -302,8 +304,8 @@ The schema is applied lazily through `ensureRabbitHoleSchema()` and recorded in 
 - The bytes are stored as a base64 snapshot in Neon, so a later X profile-picture change does not change the claimed art.
 - Sharp removes source metadata, normalizes rotation/size, and losslessly renders the supplied master plus the clipped PFP into a 1254×1254 PNG.
 - Transparent PNG/WebP pixels stay transparent. The renderer adds no replacement background; any background that is part of the user's actual X avatar remains part of that avatar.
-- Pinata receives the PNG first and metadata second. Its CIDs are stored in Neon; the metadata CID becomes the contract's permanent token URI.
-- A Pinata gateway is only a display transport. The `ipfs://` CIDs remain valid through another gateway or local IPFS node if the configured gateway is unavailable.
+- Pinata receives the PNG first and metadata second. Its CIDs are stored in Neon; the metadata CID is embedded in the contract's permanent public HTTPS token URI.
+- A Pinata gateway is only a display transport. The CIDs remain independently verifiable through another gateway or local IPFS node if the configured gateway is unavailable.
 
 ## Local setup
 
@@ -334,7 +336,7 @@ npm run contract:check
 npm run dev
 ```
 
-Open `http://localhost:3000/admin/spin?next=/RabbitHole`, sign in, and test with `RABBIT_HOLE_PUBLIC=false`.
+Open `http://localhost:3000/RabbitHole`. Set `RABBIT_HOLE_PAUSED=true` only when testing the emergency pause and admin recovery path.
 
 For local X OAuth, the X Developer App must also allow the exact local callback configured in `X_REDIRECT_URI`. Production uses the shared callback:
 
@@ -350,14 +352,14 @@ Start from [`.env.example`](.env.example). Never prefix the minter key, Pinata J
 
 | Variable | Required where | Purpose |
 | --- | --- | --- |
-| `RABBIT_HOLE_PUBLIC` | App | `false` keeps page/search/OAuth/claim behind admin; `true` launches public access |
-| `RABBIT_HOLE_NETWORK` | App and deploy shell | Exact value `mainnet` selects chain 4663; every other value selects testnet 46630, so set it explicitly |
+| `RABBIT_HOLE_PAUSED` | App | Optional emergency switch; `false` or unset is public, `true` pauses public page/search/OAuth/claim while retaining admin recovery access |
+| `RABBIT_HOLE_NETWORK` | App and deploy shell | Set `mainnet` for chain 4663. Production application runtime additionally enforces mainnet even if an old testnet value remains; local development can explicitly select testnet 46630 |
 | `RABBIT_HOLE_TESTNET_CONTRACT_ADDRESS` | App when testing | Testnet deployment address |
 | `RABBIT_HOLE_MAINNET_CONTRACT_ADDRESS` | App on mainnet | Mainnet deployment address |
 | `RABBIT_HOLE_MINTER_PRIVATE_KEY` | App and deploy shell | 32-byte `0x` private key for the sponsored minter; server-only |
 | `RABBIT_HOLE_OWNER_ADDRESS` | Deploy shell only | Owner that can rotate the minter/ownership; use a separate multisig on mainnet |
 | `PINATA_JWT` | App claim route | Server-only Pinata JWT with permission to pin files and JSON; required before any new claim |
-| `PINATA_GATEWAY_URL` | App | Optional dedicated HTTPS Pinata gateway origin; defaults to `https://gateway.pinata.cloud` |
+| `PINATA_GATEWAY_URL` | App | Optional dedicated public HTTPS Pinata gateway origin for Bunny Hood display links; invalid values safely fall back to `https://gateway.pinata.cloud` and are never placed in permanent token metadata |
 | `ROBINHOOD_TESTNET_RPC_URL` | App and deploy shell | Private testnet RPC recommended for reliability |
 | `ROBINHOOD_MAINNET_RPC_URL` | App and deploy shell | Private mainnet RPC recommended for reliability |
 
@@ -481,8 +483,8 @@ After the controlled test mint, confirm `locked(tokenId) == true`, `tokenOfClaim
 1. Connect the GitHub repository to the Bunny Hood Vercel project.
 2. Use Node.js 22.x and the repository defaults for the Next.js build.
 3. Add every shared application variable, the selected Rabbit Hole variables, `PINATA_JWT`, and optionally `PINATA_GATEWAY_URL` as encrypted Vercel environment values for Production and the relevant Preview environments.
-4. Keep `RABBIT_HOLE_PUBLIC=false`.
-5. Set `RABBIT_HOLE_NETWORK=testnet` and `RABBIT_HOLE_TESTNET_CONTRACT_ADDRESS` during the controlled test.
+4. Set `RABBIT_HOLE_PAUSED=true` for a controlled pre-launch verification.
+5. Preview/local test environments may use `RABBIT_HOLE_NETWORK=testnet` and `RABBIT_HOLE_TESTNET_CONTRACT_ADDRESS`. Production runtime is mainnet-only.
 6. Set the same minter key that the contract's `minter()` returns and a reliable RPC for the selected network.
 7. In Pinata, create a JWT that can pin files and JSON. Keep it server-only, test it in Preview, and never paste it into browser code, GitHub, screenshots, or public logs.
 8. Deploy/redeploy so the new environment values reach the runtime.
@@ -491,7 +493,7 @@ The first Rabbit Hole database access after deployment applies migrations `009` 
 
 ### Application verification
 
-With public access still off:
+With the emergency pause enabled:
 
 1. Open `/RabbitHole` in a signed-out browser and confirm it redirects to `/admin/spin?next=/RabbitHole`.
 2. Sign in as admin and confirm the page loads in `admin_preview` mode.
@@ -501,8 +503,8 @@ With public access still off:
 6. Use a final testnet wallet that does not already own this SBT.
 7. Claim and watch the transaction confirm in the testnet explorer.
 8. Confirm the original supplied box remains crisp, the PFP fills only its empty front panel, and the BH side and question-mark lid are untouched.
-9. Confirm both Pinata CIDs resolve, `tokenURI(tokenId)` is the `ipfs://` metadata CID, and the metadata `image` is the `ipfs://` PNG CID.
-10. Confirm Download PNG, Share on X, IPFS, transaction, and SBT links work; confirm the full claimed wallet is stored and copyable in the admin table.
+9. Confirm both Pinata CIDs resolve, `tokenURI(tokenId)` is the public HTTPS metadata CID URL, metadata `image` is the public HTTPS PNG CID URL, and `image_ipfs` preserves the canonical `ipfs://` PNG CID.
+10. Confirm Download PNG, Share on X, OpenSea, transaction, and SBT links work on mainnet; confirm the full claimed wallet and IPFS diagnostics are stored and copyable in the admin table.
 11. Confirm a second claim for the same X ID and a claim to the same wallet are rejected/reconciled.
 12. Simulate approval and transfer calls and confirm they revert.
 
@@ -519,15 +521,15 @@ Testnet and mainnet require separate contract deployments and addresses.
 5. Run `npm run contract:check` and `npm run contract:deploy`.
 6. Verify source, compiler settings, constructor values, bytecode, `owner()`, and `minter()` on the mainnet Blockscout explorer.
 7. Set Vercel `RABBIT_HOLE_NETWORK=mainnet`, `RABBIT_HOLE_MAINNET_CONTRACT_ADDRESS`, the matching minter key, Pinata JWT/gateway, and private mainnet RPC.
-8. Keep `RABBIT_HOLE_PUBLIC=false`, redeploy, and perform one controlled claim for a real intended recipient. This claim cannot be undone.
+8. Keep `RABBIT_HOLE_PAUSED=true`, redeploy, and perform one controlled claim as admin for a real intended recipient. This claim cannot be undone.
 9. Load and verify the final eligibility list and numeric X IDs.
 10. Check the minter's ETH balance against the expected gas for all remaining claims plus a safety buffer.
-11. Only after all checks pass, set `RABBIT_HOLE_PUBLIC=true` and redeploy.
+11. Only after all checks pass, set `RABBIT_HOLE_PAUSED=false` (or remove it) and redeploy.
 12. Verify the public page in a signed-out browser and monitor the first claims, Neon errors, RPC health, minter balance, and onchain events.
 
-### Return to private preview
+### Emergency pause
 
-Set `RABBIT_HOLE_PUBLIC=false` in Vercel and redeploy. This stops claims through the application for non-admins, but it does **not** revoke a compromised minter key. For that, the owner must call `setMinter` onchain.
+Set `RABBIT_HOLE_PAUSED=true` in Vercel and redeploy. This pauses the public page and claim APIs while preserving admin recovery access. It does **not** revoke a compromised minter key; the owner must call `setMinter` onchain for that.
 
 ## Security review
 
@@ -541,7 +543,7 @@ As of 2026-08-27, this repository has a code-level security review, build/securi
 | --- | --- |
 | Soulbound guarantee | All five approval/transfer entry points always revert; `locked()` is always true; there is no burn or recovery path |
 | Identity | X OAuth 2.0 PKCE, sealed state/verifier cookie, ten-minute expiry, fixed safe return target, read-only `tweet.read users.read` scopes, and immutable numeric X-ID binding |
-| Access | Page performs a server-side admin redirect while private; search, OAuth start, session, and claim APIs independently enforce the same access gate |
+| Access | Page and claim discovery are public by default; emergency pause is enforced independently by the page, search, OAuth start, session, and claim APIs; all list/claim administration stays behind the admin session |
 | CSRF | Claim and admin-import mutations require same-origin requests; cookies are secure/HTTP-only where appropriate |
 | Secrets | Chain and claim modules are server-only; minter key, RPC, database, and OAuth secrets have no `NEXT_PUBLIC_` path |
 | Contract configuration | Before each mint, the app checks deployed bytecode and verifies that the configured signer equals contract `minter()` |
@@ -584,7 +586,7 @@ As of 2026-08-27, this repository has a code-level security review, build/securi
 
 ### Suspected minter-key compromise
 
-1. Set `RABBIT_HOLE_PUBLIC=false` and redeploy to stop new public app claims.
+1. Set `RABBIT_HOLE_PAUSED=true` and redeploy to stop new public app claims.
 2. From the secure current owner/multisig, call `setMinter(newSecureAddress)` onchain immediately. This is the step that revokes the stolen key.
 3. Rotate `RABBIT_HOLE_MINTER_PRIVATE_KEY` in Vercel to the new signer, fund it minimally, and redeploy.
 4. Rotate affected RPC/provider credentials.
@@ -606,7 +608,7 @@ As of 2026-08-27, this repository has a code-level security review, build/securi
 
 | Symptom | Likely cause | Resolution |
 | --- | --- | --- |
-| `/RabbitHole` redirects to admin login | Expected while `RABBIT_HOLE_PUBLIC=false`, or admin cookie expired | Sign in at `/admin/spin?next=/RabbitHole`; only set the flag true after launch checks |
+| `/RabbitHole` redirects to admin login | Emergency pause is enabled | Set `RABBIT_HOLE_PAUSED=false` after checking the mainnet configuration; admins can still sign in for recovery |
 | `Rabbit Hole storage is not configured` | `DATABASE_URL` is missing from the active Vercel environment | Add the pooled Neon `DATABASE_URL` to Production/Preview as needed and redeploy |
 | `Rabbit Hole storage could not be initialized` | Invalid/unreachable Neon URL, paused database, or incomplete schema | Verify the Neon connection and redeploy; startup will safely repair missing Rabbit Hole tables/columns |
 | Old auction page still appears | Old Vercel deployment/domain alias or browser/CDN cache | Confirm production uses the commit containing the redirect, redeploy, and test `/auction` in a private window |
@@ -618,6 +620,7 @@ As of 2026-08-27, this repository has a code-level security review, build/securi
 | Profile picture required/fetch failed | Missing PFP, unsupported host/type, image over 1 MB, X image outage | Update the X PFP to a normal JPEG/PNG/WebP and reconnect/retry |
 | `IPFS storage is not configured` | `PINATA_JWT` is missing from the active Vercel environment | Add the server-only JWT to the correct environment and redeploy; do not use `NEXT_PUBLIC_` |
 | `box could not be saved to IPFS` | Invalid/expired Pinata JWT, missing pin permission, Pinata outage, or timeout | Test the JWT in Pinata, confirm file and JSON pin permissions, then retry; no mint transaction is sent when pinning fails |
+| Generic `NFT` placeholder on Blockscout | Explorer has not fetched the token's metadata/image yet | In `/admin/rabbit-hole`, find the claimed token and select **REFRESH EXPLORER**; reload the explorer page after its indexer completes |
 | Wallet already owns/was used for an SBT | Onchain `tokenOfOwner` or database unique wallet check found a prior claim | Use the original claim result; one wallet cannot receive a second Rabbit Hole SBT |
 | Page remains `minting` | Transaction pending, RPC unavailable, or request timed out after submission | Use the explorer link and keep polling; reconciliation checks `tokenOfClaim` and receipt state |
 | `failed` after no transaction | Attempt became stale before reaching the network | Fix RPC/minter/configuration and retry; attempts without a tx become retryable after two minutes |

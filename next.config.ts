@@ -32,6 +32,11 @@ const nextConfig: NextConfig = {
         destination: "/RabbitHole",
         permanent: true,
       },
+      {
+        source: "/RabitHole/:path*",
+        destination: "/RabbitHole",
+        permanent: true,
+      },
     ];
   },
   async headers() {

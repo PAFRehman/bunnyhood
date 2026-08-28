@@ -448,8 +448,10 @@
 .rabbit-full-wallet { display: flex; min-width: 440px; align-items: center; gap: 9px; }
 .rabbit-full-wallet code { color: var(--paper); font-size: 9px; }
 .rabbit-full-wallet button { border: 1px solid rgba(202,255,0,.35); border-radius: 999px; background: transparent; color: var(--lime); padding: 6px 9px; cursor: pointer; font-size: 7px; font-weight: 900; }
-.rabbit-ledger-links { display: flex; gap: 12px; }
+.rabbit-ledger-links { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .rabbit-ledger-links a { color: var(--lime); font-size: 8px; font-weight: 900; }
+.rabbit-ledger-links button { border: 1px solid rgba(202,255,0,.35); border-radius: 999px; background: transparent; color: var(--lime); padding: 6px 9px; cursor: pointer; font-size: 7px; font-weight: 900; letter-spacing: .06em; }
+.rabbit-ledger-links button:disabled { cursor: wait; opacity: .55; }
 
 @media (max-width: 980px) {
   .connect-panel { grid-template-columns: 1fr; }

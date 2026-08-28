@@ -54,10 +54,14 @@ const rabbitContract = readFileSync(join(root, "contracts/BunnyHoodRabbitHoleSBT
 const rabbitClaim = readFileSync(join(root, "lib/rabbit-hole/claim.ts"), "utf8");
 const rabbitData = readFileSync(join(root, "lib/rabbit-hole/data.ts"), "utf8");
 const rabbitPage = readFileSync(join(root, "app/RabbitHole/page.tsx"), "utf8");
+const rabbitApp = readFileSync(join(root, "app/RabbitHole/rabbit-hole-app.tsx"), "utf8");
+const rabbitConfig = readFileSync(join(root, "lib/rabbit-hole/config.ts"), "utf8");
 const rabbitAdminPage = readFileSync(join(root, "app/admin/rabbit-hole/page.tsx"), "utf8");
 const rabbitAdminApp = readFileSync(join(root, "app/admin/rabbit-hole/rabbit-hole-admin-app.tsx"), "utf8");
 const rabbitEligibilityRoute = readFileSync(join(root, "app/api/admin/rabbit-hole/eligibility/route.ts"), "utf8");
+const rabbitRefetchRoute = readFileSync(join(root, "app/api/admin/rabbit-hole/refetch-metadata/route.ts"), "utf8");
 const rabbitArt = readFileSync(join(root, "lib/rabbit-hole/art.ts"), "utf8");
+const rabbitExplorer = readFileSync(join(root, "lib/rabbit-hole/explorer.ts"), "utf8");
 const rabbitPinata = readFileSync(join(root, "lib/rabbit-hole/pinata.ts"), "utf8");
 const rabbitMasterArt = readFileSync(join(root, "public/assets/rabbit-hole-box-original.png"));
 const storageGatedRoutes = [
@@ -157,7 +161,11 @@ if (/function burn\(/.test(rabbitContract)) failures.push("Rabbit Hole SBT unexp
 if (!/AlreadyMinted\(bytes32 claimKey\)/.test(rabbitContract) || !/AlreadyOwnsSoulboundToken/.test(rabbitContract) || !/tokenOfClaim/.test(rabbitClaim)) failures.push("Onchain duplicate X and wallet claim protection is incomplete.");
 if (!/MAX_RABBIT_HOLE_ELIGIBLE = 100/.test(source) || !/rabbit_hole_active_wallet_unique/.test(migration)) failures.push("The 100-user cap or permanent wallet uniqueness is missing.");
 if (!/x_user_id = \$1/.test(rabbitData) || !/bindAuthenticatedEligibility/.test(rabbitClaim)) failures.push("Eligible usernames are not bound to authenticated X identities.");
-if (!/verifyAdminTicket/.test(rabbitPage) || !/isRabbitHolePublic/.test(rabbitPage)) failures.push("Rabbit Hole admin-preview gate is missing.");
+if (!/verifyAdminTicket/.test(rabbitPage) || !/isRabbitHolePublic/.test(rabbitPage)) failures.push("Rabbit Hole emergency-pause admin recovery gate is missing.");
+if (!/RABBIT_HOLE_PAUSED/.test(rabbitConfig) || !/!== "true"/.test(rabbitConfig)) failures.push("Rabbit Hole is not public by default with an explicit emergency pause.");
+if (!/process\.env\.NODE_ENV === "production"/.test(rabbitConfig) || !/\? "mainnet"/.test(rabbitConfig)) failures.push("Production Rabbit Hole runtime is not pinned to Robinhood Chain mainnet.");
+if (!/opensea\.io\/item\/robinhood/.test(rabbitApp) || !/VIEW ON OPENSEA/.test(rabbitApp) || /VIEW IPFS/.test(rabbitApp)) failures.push("Public claimed-token actions do not prefer OpenSea over an IPFS link.");
+if (!/source: "\/RabitHole\/:path\*"/.test(readFileSync(join(root, "next.config.ts"), "utf8"))) failures.push("The common /RabitHole spelling does not redirect to the canonical public route.");
 if (!/verifyAdminTicket/.test(rabbitAdminPage) || !/\/admin\/spin\?next=\/admin\/rabbit-hole/.test(rabbitAdminPage)) failures.push("Dedicated Rabbit Hole admin gate is missing.");
 if (!/ADD USERS/.test(rabbitAdminApp) || !/full claimed wallet/i.test(rabbitAdminApp) || !/export async function PUT/.test(rabbitEligibilityRoute) || !/addEligibility/.test(rabbitEligibilityRoute)) failures.push("Rabbit Hole add-user admin controls are incomplete.");
 if (!/ALLOWED_PFP_HOSTS/.test(rabbitArt) || !/MAX_PFP_BYTES/.test(rabbitArt)) failures.push("X profile image snapshot fetching is not host and size bounded.");
@@ -165,6 +173,9 @@ if (!/rabbit-hole-box-original\.png/.test(rabbitArt) || !/renderRabbitHoleSbtPng
 if (createHash("sha256").update(rabbitMasterArt).digest("hex") !== "90e50c91697496100d92c6365ac7567995e8ceabfe8255064fb0752fbfee6e38" || rabbitMasterArt.readUInt32BE(16) !== 1254 || rabbitMasterArt.readUInt32BE(20) !== 1254) failures.push("The user-supplied 1254px Rabbit Hole master artwork was modified.");
 if (!/pinFileToIPFS/.test(rabbitPinata) || !/pinJSONToIPFS/.test(rabbitPinata) || !/PINATA_JWT/.test(rabbitPinata) || !/pinRabbitHoleSbt/.test(rabbitClaim)) failures.push("Rabbit Hole artwork and metadata are not pinned to IPFS before minting.");
 if (rabbitClaim.indexOf("const pinned = await pinRabbitHoleSbt") < 0 || rabbitClaim.indexOf("const pinned = await pinRabbitHoleSbt") > rabbitClaim.indexOf("walletClient.writeContract")) failures.push("The Rabbit Hole mint can be submitted before its IPFS assets are pinned.");
+if (!/image: publicIpfsGatewayUrl\(input\.imageCid\)/.test(rabbitPinata) || !/const uri = pinned\.metadataGatewayUrl/.test(rabbitClaim)) failures.push("New Rabbit Hole metadata is not exposed through explorer-compatible immutable HTTPS CID URLs.");
+if (!/using the public Pinata gateway/.test(rabbitPinata) || /throw new Error\("PINATA_GATEWAY_URL/.test(rabbitPinata)) failures.push("An optional malformed Pinata gateway can still break Rabbit Hole reads.");
+if (!/requireSpinAdmin/.test(rabbitRefetchRoute) || !/assertSameOrigin/.test(rabbitRefetchRoute) || !/requestExplorerMetadataRefresh/.test(`${rabbitRefetchRoute}\n${rabbitExplorer}`) || !/REFRESH EXPLORER/.test(rabbitAdminApp)) failures.push("Admin-only Blockscout metadata recovery is incomplete.");
 if (!/image_cid/.test(migration) || !/metadata_cid/.test(migration) || !/rabbit_hole_claimed_wallet_idx/.test(migration)) failures.push("Rabbit Hole IPFS identifiers or claimed-wallet ledger index are missing.");
 if (/debug:\s*stack|Internal Error:/.test(readFileSync(join(root, "lib/spin/http.ts"), "utf8"))) failures.push("Internal server stack details are exposed to clients.");
 

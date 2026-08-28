@@ -19,15 +19,18 @@ function pinataJwt() {
 }
 
 function pinataGateway() {
-  const value = process.env.PINATA_GATEWAY_URL?.trim() || DEFAULT_GATEWAY;
-  let url: URL;
+  const value = process.env.PINATA_GATEWAY_URL?.trim();
+  if (!value) return DEFAULT_GATEWAY;
   try {
-    url = new URL(value);
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
+      throw new Error("Unsafe gateway URL");
+    }
+    return url.toString().replace(/\/$/, "").replace(/\/ipfs$/, "");
   } catch {
-    throw new Error("PINATA_GATEWAY_URL must be a valid HTTPS URL.");
+    console.error("PINATA_GATEWAY_URL is invalid; using the public Pinata gateway.");
+    return DEFAULT_GATEWAY;
   }
-  if (url.protocol !== "https:") throw new Error("PINATA_GATEWAY_URL must use HTTPS.");
-  return url.toString().replace(/\/$/, "").replace(/\/ipfs$/, "");
 }
 
 function readCid(value: unknown) {
@@ -69,6 +72,10 @@ export function ipfsGatewayUrl(cid: string | null) {
   return cid && CID_PATTERN.test(cid) ? `${pinataGateway()}/ipfs/${cid}` : null;
 }
 
+export function publicIpfsGatewayUrl(cid: string) {
+  return `${DEFAULT_GATEWAY}/ipfs/${readCid(cid)}`;
+}
+
 async function pinArtwork(png: Buffer, username: string) {
   const form = new FormData();
   form.set("file", new Blob([new Uint8Array(png)], { type: "image/png" }), `bunny-hood-rabbit-hole-${username}.png`);
@@ -98,7 +105,10 @@ async function pinMetadata(input: {
       pinataContent: {
         name: `Bunny Hood Rabbit Hole · @${input.username}`,
         description: `A permanent, non-transferable Bunny Hood soulbound identity box for @${input.username}.`,
-        image: ipfsUri(input.imageCid),
+        // Block explorers reliably ingest ordinary HTTPS metadata fields. The
+        // immutable IPFS URI remains alongside it as the canonical source.
+        image: publicIpfsGatewayUrl(input.imageCid),
+        image_ipfs: ipfsUri(input.imageCid),
         external_url: `${getAppUrl()}/RabbitHole`,
         attributes: [
           { trait_type: "X Username", value: `@${input.username}` },
@@ -131,6 +141,8 @@ export async function pinRabbitHoleSbt(input: {
     imageCid,
     metadataCid,
     imageUri: ipfsUri(imageCid),
+    imageGatewayUrl: publicIpfsGatewayUrl(imageCid),
     metadataUri: ipfsUri(metadataCid),
+    metadataGatewayUrl: publicIpfsGatewayUrl(metadataCid),
   };
 }

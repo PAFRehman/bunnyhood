@@ -25,7 +25,7 @@ export function isValidXUsername(value: string) {
 }
 
 export function isRabbitHolePublic() {
-  return process.env.RABBIT_HOLE_PUBLIC?.trim().toLowerCase() === "true";
+  return process.env.RABBIT_HOLE_PAUSED?.trim().toLowerCase() !== "true";
 }
 
 function optionalAddress(name: string): Address | null {
@@ -36,9 +36,15 @@ function optionalAddress(name: string): Address | null {
 }
 
 export function getRabbitHoleNetwork(): RabbitHoleNetwork {
-  const key: RabbitHoleNetworkKey = process.env.RABBIT_HOLE_NETWORK?.trim().toLowerCase() === "mainnet"
+  const configuredKey: RabbitHoleNetworkKey = process.env.RABBIT_HOLE_NETWORK?.trim().toLowerCase() === "mainnet"
     ? "mainnet"
     : "testnet";
+  // A deployed public application must never mint against the test network,
+  // even if an old Vercel value is still present. Development keeps the
+  // explicit switch so contract work can continue safely on testnet.
+  const key: RabbitHoleNetworkKey = process.env.NODE_ENV === "production"
+    ? "mainnet"
+    : configuredKey;
   const mainnet = key === "mainnet";
   const publicRpcUrl = mainnet
     ? "https://rpc.mainnet.chain.robinhood.com"

@@ -73,6 +73,14 @@ function explorerUrl(row: EligibilityRow) {
   return `${origin}/tx/${row.transactionHash}`;
 }
 
+function explorerTokenUrl(row: EligibilityRow) {
+  if (!row.contractAddress || !row.tokenId) return null;
+  const origin = row.chainId === 4663
+    ? "https://robinhoodchain.blockscout.com"
+    : "https://explorer.testnet.chain.robinhood.com";
+  return `${origin}/token/${row.contractAddress}/instance/${row.tokenId}`;
+}
+
 export function RabbitHoleAdminApp() {
   const router = useRouter();
   const [data, setData] = useState<EligibilityData | null>(null);
@@ -80,6 +88,7 @@ export function RabbitHoleAdminApp() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState<"add" | "replace" | null>(null);
+  const [refreshingMetadataId, setRefreshingMetadataId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -165,6 +174,26 @@ export function RabbitHoleAdminApp() {
     }
   }
 
+  async function refreshExplorerMetadata(row: EligibilityRow) {
+    setRefreshingMetadataId(row.id);
+    setError("");
+    try {
+      await adminRequest<{ ok: true; tokenId: string }>("/api/admin/rabbit-hole/refetch-metadata", {
+        method: "POST",
+        body: JSON.stringify({ eligibilityId: row.id }),
+      });
+      setMessage(`Blockscout is refreshing the artwork for SBT #${row.tokenId}. Reload its token page shortly.`);
+    } catch (nextError) {
+      if ((nextError as Error & { status?: number }).status === 401) {
+        router.replace("/admin/spin?next=/admin/rabbit-hole");
+        return;
+      }
+      setError(nextError instanceof Error ? nextError.message : "Explorer metadata could not be refreshed.");
+    } finally {
+      setRefreshingMetadataId(null);
+    }
+  }
+
   return (
     <main className="spin-admin-page">
       <div className="spin-admin-shell">
@@ -224,7 +253,7 @@ export function RabbitHoleAdminApp() {
                   <td><span className={`rabbit-ledger-status ${row.status}`}>{row.status}</span></td>
                   <td>{row.wallet ? <div className="rabbit-full-wallet"><code>{row.wallet}</code><button type="button" onClick={() => void copyWallet(row.wallet!)}>COPY</button></div> : "—"}</td>
                   <td><strong>{row.tokenId ? `#${row.tokenId}` : "—"}</strong></td>
-                  <td><div className="rabbit-ledger-links">{row.metadataGatewayUrl && <a href={row.metadataGatewayUrl} target="_blank" rel="noreferrer">IPFS ↗</a>}{explorerUrl(row) && <a href={explorerUrl(row)!} target="_blank" rel="noreferrer">TX ↗</a>}{!row.metadataGatewayUrl && !explorerUrl(row) && "—"}</div></td>
+                  <td><div className="rabbit-ledger-links">{row.metadataGatewayUrl && <a href={row.metadataGatewayUrl} target="_blank" rel="noreferrer">IPFS ↗</a>}{explorerUrl(row) && <a href={explorerUrl(row)!} target="_blank" rel="noreferrer">TX ↗</a>}{explorerTokenUrl(row) && <a href={explorerTokenUrl(row)!} target="_blank" rel="noreferrer">SBT ↗</a>}{row.status === "claimed" && row.tokenId && row.metadataCid && <button type="button" disabled={refreshingMetadataId === row.id} onClick={() => void refreshExplorerMetadata(row)}>{refreshingMetadataId === row.id ? "REFRESHING…" : "REFRESH EXPLORER"}</button>}{!row.metadataGatewayUrl && !explorerUrl(row) && "—"}</div></td>
                   <td>{formatDate(row.updatedAt)}</td>
                 </tr>)}
               </tbody></table>
