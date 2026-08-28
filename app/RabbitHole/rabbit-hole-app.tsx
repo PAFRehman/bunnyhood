@@ -335,8 +335,6 @@ export function RabbitHoleApp() {
       {!entered && <Intro onComplete={() => setEntered(true)} />}
       <header className="rabbit-nav">
         <Link href="/" className="rabbit-brand"><span>BH</span><strong>BUNNY HOOD</strong></Link>
-        <div><span className="rabbit-live-dot" />{state?.access === "admin_preview" ? "ADMIN PREVIEW" : "LIVE ONCHAIN"}</div>
-        <Link href="/admin/rabbit-hole">ELIGIBILITY ADMIN ↗</Link>
       </header>
 
       <section className="rabbit-hero">
