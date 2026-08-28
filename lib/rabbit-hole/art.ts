@@ -1,10 +1,25 @@
 import "server-only";
 
+import { join } from "node:path";
+import sharp from "sharp";
 import { HttpError } from "@/lib/spin/http";
 
 const MAX_PFP_BYTES = 1_000_000;
 const ALLOWED_PFP_HOSTS = new Set(["pbs.twimg.com", "abs.twimg.com"]);
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const MASTER_ART_PATH = join(process.cwd(), "public", "assets", "rabbit-hole-box-original.png");
+
+// The inset black face in the supplied 1254 x 1254 master artwork. The PFP is
+// sheared into this panel so it follows the original box perspective and never
+// covers the frame, BH side, question-mark lid, glow, or shadow.
+export const RABBIT_HOLE_ART_SIZE = 1_254;
+export const RABBIT_HOLE_PANEL = {
+  x: 257,
+  y: 478,
+  width: 330,
+  height: 431,
+  shearY: 104 / 330,
+} as const;
 
 export type ProfileSnapshot = {
   contentType: "image/jpeg" | "image/png" | "image/webp";
@@ -46,60 +61,47 @@ export async function snapshotXProfileImage(value: string | null): Promise<Profi
   };
 }
 
-export function escapeXml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&apos;");
+function validProfileBuffer(contentType: string | null, base64: string | null) {
+  if (!contentType || !ALLOWED_IMAGE_TYPES.has(contentType)) return null;
+  if (!base64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) return null;
+  const bytes = Buffer.from(base64, "base64");
+  return bytes.byteLength > 0 && bytes.byteLength <= MAX_PFP_BYTES ? bytes : null;
 }
 
-export function renderRabbitHoleSbtSvg(input: {
-  username: string;
-  displayName: string | null;
+export async function renderRabbitHoleSbtPng(input: {
   pfpContentType: string | null;
   pfpBase64: string | null;
-  tokenId: string | null;
 }) {
-  const username = escapeXml(input.username);
-  const displayName = escapeXml(input.displayName || `@${input.username}`);
-  const token = escapeXml(input.tokenId || "SOULBOUND");
-  const validBase64 = input.pfpBase64 && /^[A-Za-z0-9+/]+={0,2}$/.test(input.pfpBase64)
-    ? input.pfpBase64
-    : null;
-  const validType = input.pfpContentType && ALLOWED_IMAGE_TYPES.has(input.pfpContentType)
-    ? input.pfpContentType
-    : null;
-  const pfp = validBase64 && validType
-    ? `<image href="data:${validType};base64,${validBase64}" x="235" y="365" width="470" height="470" preserveAspectRatio="xMidYMid slice" clip-path="url(#frontClip)"/>`
-    : `<rect x="235" y="365" width="470" height="470" fill="#15220d" clip-path="url(#frontClip)"/><text x="470" y="620" text-anchor="middle" fill="#caff00" font-size="120" font-weight="900" clip-path="url(#frontClip)">BH</text>`;
+  const source = validProfileBuffer(input.pfpContentType, input.pfpBase64);
+  if (!source) throw new HttpError(422, "The saved X profile picture is unavailable.", "PFP_SNAPSHOT_MISSING");
 
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200" role="img" aria-label="Bunny Hood Rabbit Hole SBT for @${username}">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#070a06"/><stop offset="1" stop-color="#16250e"/></linearGradient>
-    <linearGradient id="top" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e4ff74"/><stop offset="1" stop-color="#a8d900"/></linearGradient>
-    <linearGradient id="side" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#87ad00"/><stop offset="1" stop-color="#426100"/></linearGradient>
-    <linearGradient id="front" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#d8ff3f"/><stop offset="1" stop-color="#8bb500"/></linearGradient>
-    <clipPath id="frontClip"><polygon points="205,350 720,350 720,865 205,805"/></clipPath>
-    <pattern id="grid" width="52" height="52" patternUnits="userSpaceOnUse"><path d="M52 0H0V52" fill="none" stroke="#caff00" stroke-opacity=".055"/></pattern>
-  </defs>
-  <rect width="1200" height="1200" fill="url(#bg)"/>
-  <rect width="1200" height="1200" fill="url(#grid)"/>
-  <circle cx="600" cy="540" r="500" fill="none" stroke="#caff00" stroke-opacity=".08" stroke-width="2"/>
-  <circle cx="600" cy="540" r="430" fill="none" stroke="#caff00" stroke-opacity=".05" stroke-width="28"/>
-  <polygon points="205,350 480,175 995,255 720,350" fill="url(#top)" stroke="#ecff9b" stroke-width="5"/>
-  <polygon points="720,350 995,255 995,770 720,865" fill="url(#side)" stroke="#aada12" stroke-width="5"/>
-  <polygon points="205,350 720,350 720,865 205,805" fill="url(#front)" stroke="#dfff58" stroke-width="5"/>
-  ${pfp}
-  <polygon points="205,730 720,790 720,865 205,805" fill="#10180c" fill-opacity=".76"/>
-  <text x="244" y="783" fill="#f4f1e8" font-family="Arial,Helvetica,sans-serif" font-size="30" font-weight="900">@${username}</text>
-  <text x="244" y="818" fill="#caff00" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="700" letter-spacing="4">PERMANENTLY SOULBOUND</text>
-  <text x="862" y="570" text-anchor="middle" fill="#0a0d08" font-family="Arial,Helvetica,sans-serif" font-size="128" font-weight="950" transform="rotate(-18 862 570)">BH</text>
-  <text x="615" y="295" text-anchor="middle" fill="#0a0d08" font-family="Arial,Helvetica,sans-serif" font-size="140" font-weight="950" transform="rotate(8 615 295)">?</text>
-  <text x="90" y="1035" fill="#caff00" font-family="Arial,Helvetica,sans-serif" font-size="18" font-weight="900" letter-spacing="6">BUNNY HOOD · RABBIT HOLE</text>
-  <text x="90" y="1085" fill="#f4f1e8" font-family="Arial,Helvetica,sans-serif" font-size="44" font-weight="900">${displayName}</text>
-  <text x="1110" y="1085" text-anchor="end" fill="#78836f" font-family="Arial,Helvetica,sans-serif" font-size="20" font-weight="800">SBT #${token}</text>
-</svg>`;
+  // Normalize every supported input to a small, metadata-free PNG before it is
+  // embedded in the SVG compositor. `cover` keeps the face centered and avoids
+  // letterboxing or an artificial background on the front panel.
+  const profile = await sharp(source, { failOn: "error" })
+    .rotate()
+    .resize(900, 900, { fit: "cover", position: "attention" })
+    .png({ compressionLevel: 9, adaptiveFiltering: true })
+    .toBuffer();
+
+  const panel = RABBIT_HOLE_PANEL;
+  const shearOffset = -(panel.x * panel.shearY);
+  const right = panel.x + panel.width;
+  const bottom = panel.y + panel.height;
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="${RABBIT_HOLE_ART_SIZE}" height="${RABBIT_HOLE_ART_SIZE}" viewBox="0 0 ${RABBIT_HOLE_ART_SIZE} ${RABBIT_HOLE_ART_SIZE}">
+      <defs>
+        <clipPath id="rabbit-hole-front" clipPathUnits="userSpaceOnUse">
+          <polygon points="${panel.x},${panel.y} ${right},${panel.y + 104} ${right},${bottom + 104} ${panel.x},${bottom}" />
+        </clipPath>
+      </defs>
+      <g clip-path="url(#rabbit-hole-front)">
+        <image href="data:image/png;base64,${profile.toString("base64")}" x="${panel.x}" y="${panel.y}" width="${panel.width}" height="${panel.height}" preserveAspectRatio="xMidYMid slice" transform="matrix(1 ${panel.shearY} 0 1 0 ${shearOffset})" />
+      </g>
+    </svg>`;
+
+  return sharp(MASTER_ART_PATH, { failOn: "error" })
+    .composite([{ input: Buffer.from(svg), blend: "over" }])
+    .png({ compressionLevel: 9, adaptiveFiltering: true })
+    .toBuffer();
 }

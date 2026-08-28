@@ -14,7 +14,7 @@ import { getAppUrl } from "@/lib/spin/config";
 import { inTransaction } from "@/lib/spin/db";
 import { HttpError } from "@/lib/spin/http";
 import { RABBIT_HOLE_SBT_ABI } from "./abi";
-import { snapshotXProfileImage } from "./art";
+import { renderRabbitHoleSbtPng, snapshotXProfileImage } from "./art";
 import { getRabbitHoleChainClients, getRabbitHolePublicClient } from "./chain";
 import { getRabbitHoleNetwork } from "./config";
 import {
@@ -23,6 +23,7 @@ import {
   getEligibilityById,
   type EligibilityRow,
 } from "./data";
+import { pinRabbitHoleSbt } from "./pinata";
 import { ensureRabbitHoleSchema } from "./schema";
 
 const STALE_PROCESSING_MS = 2 * 60_000;
@@ -223,8 +224,18 @@ export async function mintRabbitHoleSbt(user: SpinUser, walletInput: string) {
   }
 
   const profile = await snapshotXProfileImage(user.xProfileImageUrl);
+  const artwork = await renderRabbitHoleSbtPng({
+    pfpContentType: profile.contentType,
+    pfpBase64: profile.base64,
+  });
+  const pinned = await pinRabbitHoleSbt({
+    png: artwork,
+    username: eligibility.x_username,
+    chainId: network.chainId,
+    contractAddress,
+  });
   const attemptId = randomUUID();
-  const uri = metadataUrl(eligibility.id);
+  const uri = pinned.metadataUri;
   const eligibilityId = eligibility.id;
 
   try {
@@ -248,8 +259,10 @@ export async function mintRabbitHoleSbt(user: SpinUser, walletInput: string) {
          set status = 'minting', wallet_address = $1, active_attempt_id = $2::uuid,
              claim_key = $3, contract_address = $4, chain_id = $5,
              metadata_url = $6, pfp_content_type = $7, pfp_base64 = $8,
-             failure_reason = null, claim_started_at = now(), updated_at = now()
-         where id = $9::uuid
+             image_cid = $9, metadata_cid = $10, image_url = $11,
+             pinned_at = now(), failure_reason = null,
+             claim_started_at = now(), updated_at = now()
+         where id = $12::uuid
          returning ${ELIGIBILITY_COLUMNS}`,
         [
           recipient.toLowerCase(),
@@ -260,6 +273,9 @@ export async function mintRabbitHoleSbt(user: SpinUser, walletInput: string) {
           uri,
           profile.contentType,
           profile.base64,
+          pinned.imageCid,
+          pinned.metadataCid,
+          pinned.imageUri,
           current.id,
         ],
       );
@@ -303,7 +319,7 @@ export async function mintRabbitHoleSbt(user: SpinUser, walletInput: string) {
     const receipt = await publicClient.waitForTransactionReceipt({
       hash: submittedHash,
       confirmations: 1,
-      timeout: 45_000,
+      timeout: 15_000,
     });
     if (receipt.status !== "success") {
       await markFailed(eligibility, "TX_REVERTED", "The onchain mint transaction reverted.");

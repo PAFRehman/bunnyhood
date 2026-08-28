@@ -13,7 +13,7 @@ Bunny Hood is a production Next.js application deployed on Vercel. Its Rabbit Ho
 | [`/SpinTheWheel`](https://www.bunnyhood.xyz/SpinTheWheel) | X-connected rewards and wheel experience | Public |
 | `/auction/*` | Retired auction URLs | Permanently redirect to `/RabbitHole` |
 
-The Rabbit Hole metadata and SVG image endpoints remain public even in admin-preview mode so wallets and block explorers can render minted tokens.
+The Rabbit Hole metadata and PNG image endpoints remain public even in admin-preview mode so users can download their art and legacy records can still render. New claims use immutable `ipfs://` token URIs.
 
 ## Contents
 
@@ -41,8 +41,9 @@ flowchart TD
     A["Admin imports up to 100 X identities"] --> B["Neon eligibility ledger"]
     B --> C["User searches and proves identity with X OAuth"]
     C --> D["User confirms the final EVM wallet"]
-    D --> E["Server minter snapshots the PFP and sponsors the mint"]
-    E --> F["Robinhood Chain SBT plus public metadata and SVG"]
+    D --> E["Server prints the PFP on the original box"]
+    E --> F["Pinata pins PNG plus metadata to IPFS"]
+    F --> G["One Robinhood Chain SBT collection"]
 ```
 
 The browser never receives a private key and does not send the mint transaction. Bunny Hood's server-side minter pays the gas, submits the transaction, waits for one confirmation, and records the result in Neon.
@@ -53,9 +54,10 @@ An eligible user receives:
 
 - One `Bunny Hood Rabbit Hole` token (`BHRH`) at the exact EVM address they entered.
 - A unique sequential token ID and onchain ownership record on the configured Robinhood Chain network.
-- A unique box image containing the X profile picture captured at claim time, the X username and display name, `BH` on the side, `?` on top, and a permanently soulbound badge.
-- Public NFT metadata and SVG artwork that wallets and explorers can request.
+- A unique 1254×1254 PNG made from Bunny Hood's supplied original box design: the X PFP is perspective-fitted only into the empty front face, while the `BH` side, `?` lid, frame, glow, and shadow remain the original artwork.
+- Content-addressed NFT metadata and PNG artwork pinned to IPFS through Pinata. The contract permanently stores the resulting `ipfs://` metadata URI.
 - Links to the mint transaction and token page on the relevant Robinhood Chain explorer.
+- **Download PNG** and **Share on X** actions after confirmation. X's web composer cannot accept an attached image from a URL, so the UI tells the user to download the PNG and attach it to the composed post.
 - A mint sponsored by Bunny Hood. The user connects X and enters an address; the app minter sends the blockchain transaction and pays its gas.
 
 The user does **not** receive a tradable NFT. Wallets may display the SBT under an NFT tab because it uses ERC-721 interfaces, and some marketplaces may still show generic list or transfer controls, but every approval and transfer call reverts onchain.
@@ -82,10 +84,14 @@ The SBT implements the final [ERC-5192 Minimal Soulbound NFT standard](https://e
 7. The server validates the wallet, selected network, deployed contract bytecode, and that the configured signer is the contract's current minter.
 8. The server checks both the X-derived claim key and the wallet onchain to prevent a duplicate claim.
 9. The server downloads the user's current X profile picture from an approved X image host and stores a safe snapshot for the artwork.
-10. Neon creates an auditable claim attempt and marks the eligibility row `minting` under database locks and uniqueness constraints.
-11. The server-side minter simulates and submits `mint(recipient, metadataUrl, claimKey)`. The UI shows the transaction and polls the chain every three seconds.
-12. After one confirmation, the server reads the token ID from `tokenOfClaim`, marks the row `claimed`, and displays the personalized SBT.
-13. If the HTTP request times out after submission, later polling reconciles the claim from `tokenOfClaim` instead of minting a second token.
+10. The renderer uses the supplied original PNG as its base and perspective-clips the PFP to the empty front-panel polygon. It does not draw a replacement cube or put one box inside another.
+11. The server pins the final PNG to Pinata, then pins metadata whose `image` is that PNG's `ipfs://` CID. If either pin fails, minting stops before a transaction is sent.
+12. Neon creates an auditable claim attempt, stores the full receiving wallet and both CIDs, and marks the row `minting` under database locks and uniqueness constraints.
+13. The server-side minter simulates and submits `mint(recipient, ipfsMetadataUri, claimKey)`. The UI shows the transaction and polls the chain every three seconds.
+14. After one confirmation, the server reads the token ID from `tokenOfClaim`, marks the row `claimed`, and enables download, IPFS, explorer, and X-share actions.
+15. If the HTTP request times out after submission, later polling reconciles the claim from `tokenOfClaim` instead of minting a second token.
+
+IPFS is content-addressed storage, not the blockchain itself. The PNG and metadata bytes live on IPFS; the `ipfs://` metadata URI, ownership, token ID, lock state, and claim key live onchain. All tokens come from the same deployed `BunnyHoodRabbitHoleSBT` address, so they are one collection with one name and symbol—not 100 separate collections.
 
 The deterministic claim key is:
 
@@ -251,11 +257,11 @@ The ERC-721 `Approval` and `ApprovalForAll` events are declared for interface co
 | `GET /api/rabbit-hole/auth/x/start` | Same Rabbit Hole access gate | Starts X OAuth with PKCE and a sealed ten-minute state cookie |
 | `POST /api/rabbit-hole/claim` | Rabbit Hole access, authenticated X session, same origin | Validates and starts/reconciles a gas-sponsored SBT claim; limited to four attempts per five minutes per session identity |
 | `GET /api/rabbit-hole/metadata/:claimId` | Public | Returns wallet-compatible JSON metadata for a minting or claimed record |
-| `GET /api/rabbit-hole/image/:claimId` | Public | Returns the personalized SVG for a minting or claimed record |
+| `GET /api/rabbit-hole/image/:claimId` | Public | Returns the personalized PNG; `?download=1` sends it as an attachment |
 | `GET /api/admin/rabbit-hole/eligibility?search=...` | Admin only | Returns detailed rows and status counts |
 | `POST /api/admin/rabbit-hole/eligibility` | Admin and same-origin only | Parses and replaces the editable eligibility list |
 
-The public metadata endpoints intentionally reveal the X username, rendered profile snapshot, token number, and chain information associated with a public blockchain token. Do not use this drop for identities that require private metadata.
+The public IPFS metadata and PNG intentionally reveal the X username, captured profile image, collection, contract, and chain associated with a public blockchain token. Do not use this drop for identities that require private metadata.
 
 ### Core server functions
 
@@ -263,25 +269,26 @@ The public metadata endpoints intentionally reveal the X username, rendered prof
 | --- | --- | --- |
 | `lib/rabbit-hole/config.ts` | `normalizeXUsername`, `isValidXUsername`, `isRabbitHolePublic`, `getRabbitHoleNetwork`, `getRabbitHoleMinterKey` | Input normalization, access flag, chain selection, addresses, RPC, and secret-key validation |
 | `lib/rabbit-hole/chain.ts` | `getRabbitHoleChainClients`, `getRabbitHolePublicClient` | Creates server-only viem public/wallet clients |
-| `lib/rabbit-hole/schema.ts` | `ensureRabbitHoleSchema` | Applies migration `009_rabbit_hole_sbt` once under an advisory lock |
+| `lib/rabbit-hole/schema.ts` | `ensureRabbitHoleSchema` | Applies Rabbit Hole migrations `009` and `010` once under an advisory lock |
 | `lib/rabbit-hole/data.ts` | `publicEligibility`, `findEligibilityByUsername`, `getEligibilityById`, `bindAuthenticatedEligibility`, `getEligibilityStats`, `listEligibility`, `parseEligibilityImport`, `replaceEligibility` | Eligibility parsing, X binding, admin list management, counters, and public response shaping |
-| `lib/rabbit-hole/art.ts` | `snapshotXProfileImage`, `escapeXml`, `renderRabbitHoleSbtSvg` | Safe X PFP capture and escaped SVG generation |
+| `lib/rabbit-hole/art.ts` | `snapshotXProfileImage`, `renderRabbitHoleSbtPng` | Safe X PFP capture and perspective-clipped PNG rendering on the supplied master art |
+| `lib/rabbit-hole/pinata.ts` | `pinRabbitHoleSbt`, `ipfsGatewayUrl` | Server-only Pinata file/JSON pinning and display-gateway URLs |
 | `lib/rabbit-hole/claim.ts` | `rabbitHoleClaimKey`, `reconcileRabbitHoleClaim`, `mintRabbitHoleSbt` | Deterministic identity key, crash/timeout recovery, duplicate protection, sponsored mint, and final database record |
 
 ## Database and artwork
 
 Neon PostgreSQL is the application source of truth for eligibility, X bindings, personalized art, claim attempts, and the mapping from an offchain claim to its onchain result. The blockchain remains the source of truth for token ownership and soulbound behavior.
 
-Migration `009_rabbit_hole_sbt` creates:
+Migration `009_rabbit_hole_sbt` creates the claim ledger and migration `010_rabbit_hole_ipfs_art` adds permanent image/metadata CIDs, the image URI, pin timestamp, and a claimed-wallet lookup index:
 
 | Table | Purpose |
 | --- | --- |
-| `rabbit_hole_eligibility` | One row per loaded X identity with status, immutable X binding, PFP snapshot, wallet, claim key, transaction, token, contract, chain, metadata URL, failure, and timestamps |
+| `rabbit_hole_eligibility` | One row per loaded X identity with status, immutable X binding, PFP snapshot, full claimed wallet, claim key, transaction, token, contract, chain, IPFS image/metadata CIDs and URIs, failure, and timestamps |
 | `rabbit_hole_claim_attempts` | Append-style operational ledger for processing, submitted, confirmed, failed, and reconciled attempts |
 
 Database protections include unique normalized usernames, unique X IDs, unique claim keys and transaction hashes, a partial unique index preventing one wallet from being used by multiple active/claimed rows, format checks, and a constraint requiring every claimed row to contain its full onchain result.
 
-The schema is applied lazily through `ensureRabbitHoleSchema()` and recorded in `spin_schema_migrations`. [`db/migrations/009_rabbit_hole_sbt.sql`](db/migrations/009_rabbit_hole_sbt.sql) is retained for review and manual recovery.
+The schema is applied lazily through `ensureRabbitHoleSchema()` and recorded in `spin_schema_migrations`. Both [`db/migrations/009_rabbit_hole_sbt.sql`](db/migrations/009_rabbit_hole_sbt.sql) and [`db/migrations/010_rabbit_hole_ipfs_art.sql`](db/migrations/010_rabbit_hole_ipfs_art.sql) are retained for review and manual recovery.
 
 ### Artwork persistence model
 
@@ -290,8 +297,10 @@ The schema is applied lazily through `ensureRabbitHoleSchema()` and recorded in 
 - Redirects are rejected; the request times out after ten seconds.
 - Only JPEG, PNG, and WebP are accepted, with a maximum size of 1 MB.
 - The bytes are stored as a base64 snapshot in Neon, so a later X profile-picture change does not change the claimed art.
-- User-controlled text is XML-escaped before SVG rendering.
-- The onchain `tokenURI` points to Bunny Hood's metadata endpoint. Ownership survives an application outage, but metadata rendering currently depends on the Bunny Hood domain and Neon database; it is not IPFS/Arweave-immutable.
+- Sharp removes source metadata, normalizes rotation/size, and losslessly renders the supplied master plus the clipped PFP into a 1254×1254 PNG.
+- Transparent PNG/WebP pixels stay transparent. The renderer adds no replacement background; any background that is part of the user's actual X avatar remains part of that avatar.
+- Pinata receives the PNG first and metadata second. Its CIDs are stored in Neon; the metadata CID becomes the contract's permanent token URI.
+- A Pinata gateway is only a display transport. The `ipfs://` CIDs remain valid through another gateway or local IPFS node if the configured gateway is unavailable.
 
 ## Local setup
 
@@ -332,7 +341,7 @@ https://www.bunnyhood.xyz/api/spin/auth/x/callback
 
 ## Environment variables
 
-Start from [`.env.example`](.env.example). Never prefix the minter key, private RPC, database URL, X secret, or admin secret with `NEXT_PUBLIC_`.
+Start from [`.env.example`](.env.example). Never prefix the minter key, Pinata JWT, private RPC, database URL, X secret, or admin secret with `NEXT_PUBLIC_`.
 
 ### Rabbit Hole and chain
 
@@ -344,6 +353,8 @@ Start from [`.env.example`](.env.example). Never prefix the minter key, private 
 | `RABBIT_HOLE_MAINNET_CONTRACT_ADDRESS` | App on mainnet | Mainnet deployment address |
 | `RABBIT_HOLE_MINTER_PRIVATE_KEY` | App and deploy shell | 32-byte `0x` private key for the sponsored minter; server-only |
 | `RABBIT_HOLE_OWNER_ADDRESS` | Deploy shell only | Owner that can rotate the minter/ownership; use a separate multisig on mainnet |
+| `PINATA_JWT` | App claim route | Server-only Pinata JWT with permission to pin files and JSON; required before any new claim |
+| `PINATA_GATEWAY_URL` | App | Optional dedicated HTTPS Pinata gateway origin; defaults to `https://gateway.pinata.cloud` |
 | `ROBINHOOD_TESTNET_RPC_URL` | App and deploy shell | Private testnet RPC recommended for reliability |
 | `ROBINHOOD_MAINNET_RPC_URL` | App and deploy shell | Private mainnet RPC recommended for reliability |
 
@@ -466,13 +477,14 @@ After the controlled test mint, confirm `locked(tokenId) == true`, `tokenOfClaim
 
 1. Connect the GitHub repository to the Bunny Hood Vercel project.
 2. Use Node.js 22.x and the repository defaults for the Next.js build.
-3. Add every shared application variable and the selected Rabbit Hole variables as encrypted Vercel environment values for Production and the relevant Preview environments.
+3. Add every shared application variable, the selected Rabbit Hole variables, `PINATA_JWT`, and optionally `PINATA_GATEWAY_URL` as encrypted Vercel environment values for Production and the relevant Preview environments.
 4. Keep `RABBIT_HOLE_PUBLIC=false`.
 5. Set `RABBIT_HOLE_NETWORK=testnet` and `RABBIT_HOLE_TESTNET_CONTRACT_ADDRESS` during the controlled test.
 6. Set the same minter key that the contract's `minter()` returns and a reliable RPC for the selected network.
-7. Deploy/redeploy so the new environment values reach the runtime.
+7. In Pinata, create a JWT that can pin files and JSON. Keep it server-only, test it in Preview, and never paste it into browser code, GitHub, screenshots, or public logs.
+8. Deploy/redeploy so the new environment values reach the runtime.
 
-The first Rabbit Hole database access after deployment applies migration `009` automatically. The runtime needs permission to create the extension/tables/indexes on the configured Neon database.
+The first Rabbit Hole database access after deployment applies migrations `009` and `010` automatically. The runtime needs permission to create the extension/tables/columns/indexes on the configured Neon database.
 
 ### Application verification
 
@@ -485,9 +497,11 @@ With public access still off:
 5. Connect the exact X account and confirm the OAuth callback returns to `/RabbitHole`.
 6. Use a final testnet wallet that does not already own this SBT.
 7. Claim and watch the transaction confirm in the testnet explorer.
-8. Confirm the PFP art, username, wallet, token ID, metadata, explorer links, and admin status.
-9. Confirm a second claim for the same X ID and a claim to the same wallet are rejected/reconciled.
-10. Simulate approval and transfer calls and confirm they revert.
+8. Confirm the original supplied box remains crisp, the PFP fills only its empty front panel, and the BH side and question-mark lid are untouched.
+9. Confirm both Pinata CIDs resolve, `tokenURI(tokenId)` is the `ipfs://` metadata CID, and the metadata `image` is the `ipfs://` PNG CID.
+10. Confirm Download PNG, Share on X, IPFS, transaction, and SBT links work; confirm the full claimed wallet is stored and copyable in the admin table.
+11. Confirm a second claim for the same X ID and a claim to the same wallet are rejected/reconciled.
+12. Simulate approval and transfer calls and confirm they revert.
 
 ## Testnet-to-mainnet launch
 
@@ -501,7 +515,7 @@ Testnet and mainnet require separate contract deployments and addresses.
 4. Set `RABBIT_HOLE_NETWORK=mainnet`, the mainnet private RPC, minter key, and owner address in the secure deployment shell.
 5. Run `npm run contract:check` and `npm run contract:deploy`.
 6. Verify source, compiler settings, constructor values, bytecode, `owner()`, and `minter()` on the mainnet Blockscout explorer.
-7. Set Vercel `RABBIT_HOLE_NETWORK=mainnet`, `RABBIT_HOLE_MAINNET_CONTRACT_ADDRESS`, the matching minter key, and private mainnet RPC.
+7. Set Vercel `RABBIT_HOLE_NETWORK=mainnet`, `RABBIT_HOLE_MAINNET_CONTRACT_ADDRESS`, the matching minter key, Pinata JWT/gateway, and private mainnet RPC.
 8. Keep `RABBIT_HOLE_PUBLIC=false`, redeploy, and perform one controlled claim for a real intended recipient. This claim cannot be undone.
 9. Load and verify the final eligibility list and numeric X IDs.
 10. Check the minter's ETH balance against the expected gas for all remaining claims plus a safety buffer.
@@ -531,7 +545,7 @@ As of 2026-08-27, this repository has a code-level security review, build/securi
 | Duplicate protection | Database advisory locks, row locks, unique X ID/claim key/wallet constraints, deterministic claim keys, `tokenOfClaim`, and `tokenOfOwner` |
 | Failure recovery | Submitted transactions are reconciled from chain state; a request timeout does not automatically create a second mint; pre-submission attempts without a transaction can become retryable after two minutes |
 | PFP fetch | HTTPS allowlist, X-owned hosts only, no redirects, ten-second timeout, strict MIME list, 1 MB limit |
-| Artwork | XML escaping, validated image MIME/base64, `nosniff`, and public cross-origin headers only on NFT resources |
+| Artwork/IPFS | Validated image MIME/base64, fixed master asset, polygon clipping, Sharp metadata stripping, server-only Pinata JWT, bounded pin timeouts, `nosniff`, and public cross-origin headers only on NFT resources |
 | Abuse resistance | Claim endpoint allows four attempts per five minutes per authenticated session identity and enforces the application's storage-safety guard |
 | Auditability | Admin imports and every claim attempt/result are recorded; contract emits role and mint events |
 
@@ -543,7 +557,7 @@ As of 2026-08-27, this repository has a code-level security review, build/securi
 | Contract has no hard cap of 100 | High for a fixed-supply promise | The number 100 is an application rule, not an immutable contract invariant | Do not market 100 as a contract-enforced maximum; add `maxSupply` and redeploy before claims if an immutable cap is required |
 | Owner compromise | High | Owner can replace the minter or transfer ownership, enabling future unauthorized mints | Use a tested multisig/hardware-wallet policy, separate owner from minter, monitor `MinterUpdated` and `OwnershipTransferred` |
 | Wrong or lost receiving wallet | High and irreversible by design | No holder, admin, owner, or minter can move/burn/recover an existing token | Strong confirmation copy, test address ownership, tell users to use a durable wallet; never promise recovery |
-| Centralized metadata/art availability | Medium | `tokenURI` points to Bunny Hood; Neon/domain downtime prevents rendering even though ownership remains onchain | Back up Neon and PFP snapshots, monitor public endpoints, consider immutable IPFS/Arweave metadata in a future contract |
+| Pinning/gateway availability | Medium | Content CIDs are immutable, but a single Pinata account or gateway is not a permanent availability guarantee | Keep Pinata billing active, use a dedicated gateway, export CID inventory, and replicate every CID with a second pinning provider or self-hosted IPFS node |
 | Username-only allowlist row | Medium | Handle ownership may change before its first OAuth binding | Pre-bind the numeric X user ID and review final identities before launch |
 | Smart-contract receiving wallet incompatibility | Medium | Mint safely reverts if a contract address does not implement `IERC721Receiver` | Recommend standard EOA wallets unless the contract wallet has been tested |
 | Marketplace UX may imply tradability | Low/UX | Generic ERC-721 interfaces can show transfer/list buttons | Publish the contract address and soulbound explanation; onchain calls still revert |
@@ -558,6 +572,7 @@ As of 2026-08-27, this repository has a code-level security review, build/securi
 - Test both transfer overloads, `transferFrom`, `approve`, and `setApprovalForAll` as simulations and confirm `Soulbound()`.
 - Test a recipient contract with and without `IERC721Receiver` if contract wallets will be allowed.
 - Test PFP host, redirect, MIME, oversize, missing-image, and escaped-display-name cases.
+- Test Pinata authentication, file/JSON pin failure, gateway rendering, and CID replication; confirm a failed pin sends no chain transaction.
 - Verify that no server secret appears in browser JavaScript, build logs, Vercel public variables, repository history, or client error bodies.
 - Back up the database and test restoration of eligibility plus PFP snapshots.
 - Alert on unexpected `SoulboundMinted`, `MinterUpdated`, and `OwnershipTransferred` events and on a low minter ETH balance.
@@ -596,10 +611,12 @@ As of 2026-08-27, this repository has a code-level security review, build/securi
 | `mint wallet needs more gas` | Sponsored signer lacks ETH | Fund the minter on the selected network and retry |
 | X account is not eligible | Wrong X account, missing row, username changed, or X ID conflicts | Search/admin-review the row and immutable X ID; do not rebind an already-bound identity |
 | Profile picture required/fetch failed | Missing PFP, unsupported host/type, image over 1 MB, X image outage | Update the X PFP to a normal JPEG/PNG/WebP and reconnect/retry |
+| `IPFS storage is not configured` | `PINATA_JWT` is missing from the active Vercel environment | Add the server-only JWT to the correct environment and redeploy; do not use `NEXT_PUBLIC_` |
+| `box could not be saved to IPFS` | Invalid/expired Pinata JWT, missing pin permission, Pinata outage, or timeout | Test the JWT in Pinata, confirm file and JSON pin permissions, then retry; no mint transaction is sent when pinning fails |
 | Wallet already owns/was used for an SBT | Onchain `tokenOfOwner` or database unique wallet check found a prior claim | Use the original claim result; one wallet cannot receive a second Rabbit Hole SBT |
 | Page remains `minting` | Transaction pending, RPC unavailable, or request timed out after submission | Use the explorer link and keep polling; reconciliation checks `tokenOfClaim` and receipt state |
 | `failed` after no transaction | Attempt became stale before reaching the network | Fix RPC/minter/configuration and retry; attempts without a tx become retryable after two minutes |
-| Artwork does not appear in wallet | Wallet metadata cache or Bunny Hood metadata endpoint unavailable | Open the metadata/image URL directly, confirm `APP_URL` and Neon, then request metadata refresh in the wallet/explorer |
+| Artwork does not appear in wallet | Wallet metadata cache, gateway issue, or CID not pinned/replicated | Open the metadata CID through another IPFS gateway, verify its `image` CID, restore/replicate the pin, then request a wallet/explorer metadata refresh |
 | User entered the wrong wallet | Address was confirmed before a successful mint | There is no recovery or transfer. Do not alter the DB to suggest otherwise |
 | Import exceeds 100 after omitting old users | Claimed/minting rows are protected and still count | Reduce new entries; protected records cannot be deleted through list replacement |
 
@@ -629,7 +646,8 @@ npm test
 | `contracts/BunnyHoodRabbitHoleSBT.sol` | Permanent ERC-5192 SBT contract |
 | `contracts/artifacts/BunnyHoodRabbitHoleSBT.json` | Generated compiler version, ABI, and bytecode |
 | `lib/rabbit-hole/` | Access, chain, claim, config, data, schema, ABI, and artwork modules |
-| `db/migrations/009_rabbit_hole_sbt.sql` | Auditable Neon schema migration |
+| `db/migrations/009_rabbit_hole_sbt.sql` | Auditable Neon claim-ledger migration |
+| `db/migrations/010_rabbit_hole_ipfs_art.sql` | IPFS identifiers and claimed-wallet index migration |
 | `scripts/compile-sbt.mjs` | Deterministic local Solidity compilation |
 | `scripts/check-sbt.mjs` | Static soulbound and artifact invariant checks |
 | `scripts/deploy-sbt.mjs` | Robinhood Chain testnet/mainnet deployment |

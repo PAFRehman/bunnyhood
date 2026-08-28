@@ -9,6 +9,7 @@ import {
   MAX_RABBIT_HOLE_ELIGIBLE,
   normalizeXUsername,
 } from "./config";
+import { ipfsGatewayUrl } from "./pinata";
 import { ensureRabbitHoleSchema } from "./schema";
 
 export type RabbitHoleClaimStatus = "eligible" | "minting" | "claimed" | "failed";
@@ -31,6 +32,10 @@ export type EligibilityRow = {
   contract_address: string | null;
   chain_id: string | number | null;
   metadata_url: string | null;
+  image_cid: string | null;
+  metadata_cid: string | null;
+  image_url: string | null;
+  pinned_at: Date | string | null;
   failure_reason: string | null;
   connected_at: Date | string | null;
   claim_started_at: Date | string | null;
@@ -46,7 +51,8 @@ export const ELIGIBILITY_COLUMNS = `
   x_profile_image_url, pfp_content_type, pfp_base64, status,
   wallet_address, active_attempt_id, transaction_hash,
   token_id::text as token_id, claim_key, contract_address, chain_id,
-  metadata_url, failure_reason, connected_at, claim_started_at,
+  metadata_url, image_cid, metadata_cid, image_url, pinned_at,
+  failure_reason, connected_at, claim_started_at,
   claimed_at, imported_at, updated_at
 `;
 
@@ -69,6 +75,12 @@ export function publicEligibility(row: EligibilityRow | null) {
     contractAddress: row.contract_address,
     chainId: row.chain_id === null ? null : Number(row.chain_id),
     metadataUrl: row.metadata_url,
+    imageUrl: row.image_url,
+    imageCid: row.image_cid,
+    metadataCid: row.metadata_cid,
+    imageGatewayUrl: ipfsGatewayUrl(row.image_cid),
+    metadataGatewayUrl: ipfsGatewayUrl(row.metadata_cid),
+    pinnedAt: iso(row.pinned_at),
     claimedAt: iso(row.claimed_at),
     updatedAt: iso(row.updated_at),
   };
@@ -180,7 +192,11 @@ export async function listEligibility(search = "") {
     wallet: row.wallet_address,
     transactionHash: row.transaction_hash,
     tokenId: row.token_id,
+    contractAddress: row.contract_address,
     chainId: row.chain_id === null ? null : Number(row.chain_id),
+    imageCid: row.image_cid,
+    metadataCid: row.metadata_cid,
+    metadataGatewayUrl: ipfsGatewayUrl(row.metadata_cid),
     claimedAt: iso(row.claimed_at),
     updatedAt: iso(row.updated_at),
   }));

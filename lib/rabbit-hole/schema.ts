@@ -2,9 +2,10 @@ import "server-only";
 
 import { getDb, inTransaction } from "@/lib/spin/db";
 
-const MIGRATION_ID = "009_rabbit_hole_sbt";
-
-const statements = [
+const rabbitHoleMigrations = [
+  {
+    id: "009_rabbit_hole_sbt",
+    statements: [
   `create extension if not exists pgcrypto`,
   `create table if not exists rabbit_hole_eligibility (
     id uuid primary key default gen_random_uuid(),
@@ -73,6 +74,24 @@ const statements = [
   )`,
   `create index if not exists rabbit_hole_attempts_eligibility_idx
     on rabbit_hole_claim_attempts(eligibility_id, created_at desc)`,
+    ],
+  },
+  {
+    id: "010_rabbit_hole_ipfs_art",
+    statements: [
+      `alter table rabbit_hole_eligibility
+        add column if not exists image_cid text,
+        add column if not exists metadata_cid text,
+        add column if not exists image_url text,
+        add column if not exists pinned_at timestamptz`,
+      `create unique index if not exists rabbit_hole_metadata_cid_unique
+        on rabbit_hole_eligibility(metadata_cid)
+        where metadata_cid is not null`,
+      `create index if not exists rabbit_hole_claimed_wallet_idx
+        on rabbit_hole_eligibility(claimed_at desc, lower(wallet_address))
+        where status = 'claimed'`,
+    ],
+  },
 ] as const;
 
 declare global {
@@ -87,28 +106,23 @@ async function migrate() {
       applied_at timestamptz not null default now()
     )
   `;
-  const applied = await sql<{ applied: boolean }[]>`
-    select exists(
-      select 1 from spin_schema_migrations where migration_id = ${MIGRATION_ID}
-    ) as applied
-  `;
-  if (applied[0]?.applied) return;
-
-  await inTransaction(async (transaction) => {
-    await transaction`select pg_advisory_xact_lock(hashtext('bunny-hood-rabbit-hole-schema'))`;
-    const current = await transaction<{ applied: boolean }[]>`
-      select exists(
-        select 1 from spin_schema_migrations where migration_id = ${MIGRATION_ID}
-      ) as applied
-    `;
-    if (current[0]?.applied) return;
-    for (const statement of statements) await transaction.unsafe(statement);
-    await transaction`
-      insert into spin_schema_migrations (migration_id)
-      values (${MIGRATION_ID})
-      on conflict (migration_id) do nothing
-    `;
-  });
+  for (const migration of rabbitHoleMigrations) {
+    await inTransaction(async (transaction) => {
+      await transaction`select pg_advisory_xact_lock(hashtext('bunny-hood-rabbit-hole-schema'))`;
+      const current = await transaction<{ applied: boolean }[]>`
+        select exists(
+          select 1 from spin_schema_migrations where migration_id = ${migration.id}
+        ) as applied
+      `;
+      if (current[0]?.applied) return;
+      for (const statement of migration.statements) await transaction.unsafe(statement);
+      await transaction`
+        insert into spin_schema_migrations (migration_id)
+        values (${migration.id})
+        on conflict (migration_id) do nothing
+      `;
+    });
+  }
 }
 
 export async function ensureRabbitHoleSchema() {
