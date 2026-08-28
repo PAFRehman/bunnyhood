@@ -23,6 +23,7 @@ import {
   getEligibilityById,
   type EligibilityRow,
 } from "./data";
+import { requestExplorerMetadataRefresh } from "./explorer";
 import { pinRabbitHoleSbt } from "./pinata";
 import { ensureRabbitHoleSchema } from "./schema";
 
@@ -235,7 +236,9 @@ export async function mintRabbitHoleSbt(user: SpinUser, walletInput: string) {
     contractAddress,
   });
   const attemptId = randomUUID();
-  const uri = pinned.metadataUri;
+  // Use the immutable CID through a public HTTPS gateway so Blockscout and
+  // wallet clients that do not resolve ipfs:// can ingest the metadata.
+  const uri = pinned.metadataGatewayUrl;
   const eligibilityId = eligibility.id;
 
   try {
@@ -275,7 +278,7 @@ export async function mintRabbitHoleSbt(user: SpinUser, walletInput: string) {
           profile.base64,
           pinned.imageCid,
           pinned.metadataCid,
-          pinned.imageUri,
+          pinned.imageGatewayUrl,
           current.id,
         ],
       );
@@ -334,7 +337,18 @@ export async function mintRabbitHoleSbt(user: SpinUser, walletInput: string) {
     if (tokenId === 0n) {
       throw new Error("Mint succeeded but tokenOfClaim returned zero.");
     }
-    return await finalizeClaim(eligibility, tokenId, recipient, submittedHash);
+    const claimed = await finalizeClaim(eligibility, tokenId, recipient, submittedHash);
+    try {
+      await requestExplorerMetadataRefresh({
+        chainId: network.chainId,
+        contractAddress,
+        tokenId: tokenId.toString(),
+      });
+    } catch (error) {
+      // Explorer indexing is best effort and must never undo a confirmed mint.
+      console.error("Rabbit Hole explorer refresh will need a retry.", error instanceof Error ? error.message : error);
+    }
+    return claimed;
   } catch (error) {
     if (transactionHash && /timed?\s*out|timeout/i.test(error instanceof Error ? error.message : "")) {
       return await getEligibilityById(eligibility.id);

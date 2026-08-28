@@ -172,6 +172,8 @@
 .rabbit-table-wrap td:first-child small { color: #777f70; font-size: 8px; }
 .rabbit-table-wrap td:last-child { display: grid; gap: 5px; }
 .rabbit-table-wrap td:last-child > a { width: max-content; color: #587500; font-size: 7px; font-weight: 900; letter-spacing: .08em; }
+.rabbit-refresh-metadata { width: max-content; border: 1px solid rgba(7,10,6,.2); border-radius: 999px; background: var(--rabbit-ink); padding: 6px 9px; color: var(--rabbit-lime); cursor: pointer; font-size: 6px; font-weight: 950; letter-spacing: .1em; }
+.rabbit-refresh-metadata:disabled { cursor: wait; opacity: .55; }
 .rabbit-table-wrap .rabbit-status { padding: 6px 8px; font-size: 6px; }
 .rabbit-wallet-cell { display: grid; gap: 7px; }
 .rabbit-wallet-cell code { color: #283020; font-size: 9px; white-space: nowrap; }
