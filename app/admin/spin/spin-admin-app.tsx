@@ -48,6 +48,16 @@ type Dashboard = {
     tables: Array<{ name: string; bytes: number; estimatedRows: number }>;
   };
   integrity: { accountingMismatches: number; winMismatches: number };
+  topReferrers: Array<{
+    rank: number;
+    xUserId: string;
+    xUsername: string;
+    xName: string;
+    referralCode: string | null;
+    referralCount: number;
+    awardedSpins: number;
+    lastReferralAt: string | null;
+  }>;
   daily: Array<{
     day: string;
     attempts: number;
@@ -240,7 +250,7 @@ export function SpinAdminApp() {
       await adminRequest("/api/admin/spin/login", { method: "POST", body: JSON.stringify({ password }) });
       setPassword("");
       const next = new URLSearchParams(window.location.search).get("next");
-      if (next === "/RabbitHole") {
+      if (next === "/RabbitHole" || next === "/admin/rabbit-hole") {
         window.location.assign(next);
         return;
       }
@@ -371,7 +381,7 @@ export function SpinAdminApp() {
   if (needsLogin) {
     return (
       <main className="spin-admin-page"><div className="spin-admin-shell">
-        <div className="spin-admin-brand"><strong>BUNNY HOOD · DATA ADMIN</strong><div><a href="/RabbitHole">Rabbit Hole</a><a href="/SpinTheWheel">Open wheel</a></div></div>
+        <div className="spin-admin-brand"><strong>BUNNY HOOD · DATA ADMIN</strong><div><a href="/admin/rabbit-hole">Eligibility manager</a><a href="/RabbitHole">Rabbit Hole</a><a href="/SpinTheWheel">Open wheel</a></div></div>
         <section className="admin-login"><div className="admin-card">
           <p className="section-kicker">PRIVATE CONTROL ROOM</p><h1>Admin sign in.</h1>
           <p>Manage campaigns, Rabbit Hole SBT eligibility, wallet permissions, permanent Neon records, storage health, and private exports.</p>
@@ -388,7 +398,7 @@ export function SpinAdminApp() {
 
   return (
     <main className="spin-admin-page"><div className="spin-admin-shell">
-      <div className="spin-admin-brand"><strong>BUNNY HOOD · DATA ADMIN</strong><div><span className="admin-live"><i /> LIVE · 5S</span><a href="/RabbitHole">Rabbit Hole</a><a href="/SpinTheWheel">Open wheel</a><button onClick={logout} type="button">Sign out</button></div></div>
+      <div className="spin-admin-brand"><strong>BUNNY HOOD · DATA ADMIN</strong><div><span className="admin-live"><i /> LIVE · 5S</span><a href="/admin/rabbit-hole">Eligibility manager</a><a href="/RabbitHole">Rabbit Hole</a><a href="/SpinTheWheel">Open wheel</a><button onClick={logout} type="button">Sign out</button></div></div>
       <section className="admin-dashboard">
         <header><div><p className="section-kicker">PRIVATE CONTROL ROOM</p><h1>Run the Hood.<br /><em>Know the data.</em></h1></div><div className="admin-header-actions"><span>Last refresh · {new Date(dashboard.generatedAt).toLocaleTimeString()}</span>{exportControls}</div></header>
 
@@ -408,6 +418,11 @@ export function SpinAdminApp() {
           <section className="admin-panel admin-storage-card"><p className="section-kicker">DATABASE HEALTH</p><h2>{formatBytes(dashboard.storage.databaseBytes)}</h2><div className="admin-health-list"><div><span>Automatic safety limit</span><strong>{formatBytes(dashboard.storage.safetyLimitBytes)}</strong></div><div><span>Space before public pause</span><strong className={dashboard.storage.safetyPaused ? "warning" : "healthy"}>{formatBytes(dashboard.storage.remainingBeforePause)}</strong></div><div><span>Permanent attempt totals</span><strong>{formatNumber(dashboard.storage.recordedAttempts)}</strong></div><div><span>Last cleanup</span><strong>{formatDate(dashboard.storage.lastMaintenanceAt)}</strong></div><div><span>Technical rows removed</span><strong>{formatNumber(dashboard.storage.lastArchived)}</strong></div><div><span>Accounting integrity</span><strong className={integrityHealthy ? "healthy" : "warning"}>{integrityHealthy ? "VERIFIED" : "CHECK REQUIRED"}</strong></div></div></section>
           <section className="admin-panel"><p className="section-kicker">PERMANENT ROLE LEDGER</p><h2>{formatNumber(dashboard.totals.wins)} wins stored</h2><div className="admin-role-ledger"><div><span>GTD</span><strong>{formatNumber(dashboard.totals.roleWins.GTD)}</strong></div><div><span>FCFS1</span><strong>{formatNumber(dashboard.totals.roleWins.FCFS1)}</strong></div><div><span>FCFS2</span><strong>{formatNumber(dashboard.totals.roleWins.FCFS2)}</strong></div></div><p className="admin-note">Role ownership is read from permanent win rows, not temporary wheel animation data.</p></section>
         </div>
+
+        <section className="admin-panel admin-referral-leaderboard">
+          <div className="admin-panel-heading"><div><p className="section-kicker">PRIVATE REFERRAL LEADERBOARD</p><h2>Top 15 referrers</h2><p className="admin-note">Ranked by successful permanent referral records. Ties use the most recent successful referral.</p></div><a className="admin-export-button" href="/api/admin/spin/export/csv?view=referrals">Download all referrals</a></div>
+          <div className="admin-table-wrap"><table className="admin-data-table compact"><thead><tr><th>Rank</th><th>User</th><th>X ID</th><th>Referral code</th><th>Successful referrals</th><th>Spins awarded</th><th>Latest referral</th></tr></thead><tbody>{dashboard.topReferrers.map((user) => <tr key={user.xUserId}><td><strong>#{user.rank}</strong></td><td><strong>@{user.xUsername}</strong><small>{user.xName}</small></td><td>{user.xUserId}</td><td>{user.referralCode || "—"}</td><td><strong className="admin-referral-count">{formatNumber(user.referralCount)}</strong></td><td>+{formatNumber(user.awardedSpins)}</td><td>{formatDate(user.lastReferralAt)}</td></tr>)}</tbody></table>{dashboard.topReferrers.length === 0 && <div className="admin-empty">No successful referrals recorded yet.</div>}</div>
+        </section>
 
         <div className="admin-grid">
           <section className="admin-panel"><h2>Current campaign</h2>{dashboard.campaign ? <div className="admin-campaign-data"><div><span>Title</span><strong>{dashboard.campaign.title}</strong></div><div><span>Tweet</span><strong>{dashboard.campaign.tweetUrl.replace(/^https:\/\//, "")}</strong></div><div><span>Expected unique users</span><strong>{formatNumber(dashboard.campaign.expectedUsers)}</strong></div><div><span>Expected spins per user</span><strong>{formatNumber(dashboard.campaign.expectedSpinsPerUser)}</strong></div><div><span>Unique draw entrants</span><strong>{formatNumber(dashboard.campaign.participantsSeen)}</strong></div><div><span>Unique winners selected</span><strong>{formatNumber(dashboard.campaign.winnersSelected)}</strong></div><div><span>Permanent attempts counter</span><strong>{formatNumber(dashboard.campaign.spinsProcessed)}</strong></div><div><span>Current daily round</span><strong>#{dashboard.campaign.roundNumber}</strong></div><div><span>Ends</span><strong>{new Date(dashboard.campaign.endsAt).toLocaleString()}</strong></div>{dashboard.inventory.map((item) => <div key={item.prizeType}><span>{item.prizeType}</span><strong>{formatNumber(item.claimed)} / {formatNumber(item.total)} claimed</strong></div>)}</div> : <p className="admin-note">No live campaign. Publish one using the form.</p>}<p className="admin-note">Daily tweet/code updates preserve every user balance and this campaign&apos;s private prize pool. Prize totals remain visible only here.</p></section>
