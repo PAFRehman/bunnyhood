@@ -25,7 +25,7 @@ export async function getAdminOverview() {
     getSpinSettings(sql),
   ]);
 
-  const [totals, inventory, draw, databaseSize, tableStats, retention, daily, integrity] = await Promise.all([
+  const [totals, inventory, draw, databaseSize, tableStats, retention, daily, integrity, topReferrers] = await Promise.all([
     sql<{
       users: number;
       active_24h: number;
@@ -128,6 +128,25 @@ export async function getAdminOverview() {
         )::int as win_mismatches
       from spin_users users
     `,
+    sql<{
+      x_user_id: string;
+      x_username: string;
+      x_name: string;
+      referral_code: string | null;
+      referral_count: number;
+      awarded_spins: number | string;
+      last_referral_at: Date | string;
+    }[]>`
+      select users.x_user_id, users.x_username, users.x_name, users.referral_code,
+        count(referrals.id)::int as referral_count,
+        coalesce(sum(referrals.awarded_spins), 0)::text as awarded_spins,
+        max(referrals.created_at) as last_referral_at
+      from spin_referrals referrals
+      join spin_users users on users.id = referrals.referrer_user_id
+      group by users.id
+      order by count(referrals.id) desc, max(referrals.created_at) desc, users.x_username asc
+      limit 15
+    `,
   ]);
 
   const total = totals[0];
@@ -189,6 +208,16 @@ export async function getAdminOverview() {
       accountingMismatches: numeric(integrity[0]?.accounting_mismatches),
       winMismatches: numeric(integrity[0]?.win_mismatches),
     },
+    topReferrers: topReferrers.map((row, index) => ({
+      rank: index + 1,
+      xUserId: row.x_user_id,
+      xUsername: row.x_username,
+      xName: row.x_name,
+      referralCode: row.referral_code,
+      referralCount: Number(row.referral_count),
+      awardedSpins: numeric(row.awarded_spins),
+      lastReferralAt: iso(row.last_referral_at),
+    })),
     daily: daily.map((row) => ({
       day: new Date(row.metric_day).toISOString().slice(0, 10),
       attempts: numeric(row.attempts),
