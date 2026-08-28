@@ -387,7 +387,9 @@
 .admin-role-ledger div { display: flex; flex-direction: column; gap: 7px; border: 1px solid rgba(202,255,0,.17); border-radius: 12px; background: rgba(202,255,0,.035); padding: 18px; }
 .admin-role-ledger span { color: #788071; font-size: 7px; font-weight: 900; letter-spacing: .13em; }
 .admin-role-ledger strong { color: var(--lime); font-size: 28px; }
-.admin-activity-panel, .admin-records-panel, .admin-table-sizes { margin-top: 18px; }
+.admin-activity-panel, .admin-records-panel, .admin-table-sizes, .admin-referral-leaderboard { margin-top: 18px; }
+.admin-referral-leaderboard .admin-data-table { min-width: 930px; }
+.admin-referral-count { color: var(--lime) !important; font-size: 16px !important; }
 .admin-panel-heading, .admin-records-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 30px; margin-bottom: 24px; }
 .admin-panel-heading .section-kicker, .admin-records-heading .section-kicker { margin-bottom: 9px; }
 .admin-panel-heading h2, .admin-records-heading h2 { margin: 0; }
@@ -424,6 +426,31 @@
 .admin-size-grid strong { color: var(--lime); font-size: 18px; }
 .admin-size-grid small { color: #62695e; font-size: 7px; }
 
+.rabbit-admin-dashboard > header { align-items: end; }
+.rabbit-admin-intro { max-width: 560px; margin: 0; color: #858d7f; font-size: 12px; line-height: 1.65; }
+.rabbit-admin-editor-grid { grid-template-columns: 1.05fr .95fr; }
+.rabbit-admin-import > label { display: block; margin: 4px 0 9px; color: var(--lime); font-size: 8px; font-weight: 900; letter-spacing: .13em; text-transform: uppercase; }
+.rabbit-admin-import textarea { width: 100%; resize: vertical; border: 1px solid rgba(255,255,255,.16); border-radius: 14px; outline: 0; background: #080a07; color: var(--paper); padding: 16px; font: 11px/1.6 monospace; }
+.rabbit-admin-import textarea:focus { border-color: rgba(202,255,0,.65); box-shadow: 0 0 0 3px rgba(202,255,0,.06); }
+.rabbit-admin-import-count { display: flex; justify-content: flex-end; margin: 9px 0 15px; color: #788071; font-size: 8px; font-weight: 900; letter-spacing: .1em; }
+.rabbit-admin-import-count .over { color: #ff968d; }
+.rabbit-replace-button { margin-top: 10px; border-color: rgba(255,150,141,.48); color: #ff968d; }
+.rabbit-admin-guide .admin-campaign-data { margin-top: 25px; }
+.rabbit-admin-records { margin-top: 18px; }
+.rabbit-admin-records .admin-record-toolbar { justify-content: flex-end; }
+.rabbit-admin-records .admin-record-toolbar form { width: min(100%, 620px); }
+.rabbit-admin-table { min-width: 1280px; }
+.rabbit-ledger-status { display: inline-flex; border-radius: 999px; padding: 7px 10px; font-size: 7px; font-weight: 950; letter-spacing: .09em; text-transform: uppercase; }
+.rabbit-ledger-status.eligible { background: rgba(202,255,0,.1); color: var(--lime); }
+.rabbit-ledger-status.minting { background: rgba(255,213,80,.1); color: #ffd550; }
+.rabbit-ledger-status.claimed { background: rgba(116,208,255,.1); color: #74d0ff; }
+.rabbit-ledger-status.failed { background: rgba(255,150,141,.1); color: #ff968d; }
+.rabbit-full-wallet { display: flex; min-width: 440px; align-items: center; gap: 9px; }
+.rabbit-full-wallet code { color: var(--paper); font-size: 9px; }
+.rabbit-full-wallet button { border: 1px solid rgba(202,255,0,.35); border-radius: 999px; background: transparent; color: var(--lime); padding: 6px 9px; cursor: pointer; font-size: 7px; font-weight: 900; }
+.rabbit-ledger-links { display: flex; gap: 12px; }
+.rabbit-ledger-links a { color: var(--lime); font-size: 8px; font-weight: 900; }
+
 @media (max-width: 980px) {
   .connect-panel { grid-template-columns: 1fr; }
   .x-connect-button { width: min(100%, 420px); }
@@ -443,6 +470,7 @@
   .admin-stats { grid-template-columns: repeat(3, 1fr); }
   .admin-health-grid { grid-template-columns: 1fr; }
   .admin-size-grid { grid-template-columns: repeat(3, 1fr); }
+  .rabbit-admin-editor-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 690px) {
@@ -495,6 +523,7 @@
   .admin-panel-heading { align-items: flex-start; flex-direction: column; }
   .spin-admin-brand > div { gap: 12px; }
   .admin-live { display: none; }
+  .rabbit-admin-dashboard > header { align-items: flex-start; }
 }
 
 @media (max-width: 420px) {
