@@ -71,8 +71,9 @@ long-term availability.
 
 ## Eligibility list
 
-Open `/RabbitHole` through the existing admin login. The private eligibility
-manager accepts up to 100 lines:
+Open `/admin/rabbit-hole` through the existing admin login. The dedicated
+manager can safely add users without removing the current list, or deliberately
+replace the editable list. It accepts up to 100 lines:
 
 ```text
 username

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getDb, inTransaction } from "@/lib/spin/db";
+import { HttpError } from "@/lib/spin/http";
 
 const rabbitHoleMigrations = [
   {
@@ -98,6 +99,59 @@ declare global {
   var bunnyHoodRabbitHoleSchema: Promise<void> | undefined;
 }
 
+const requiredEligibilityColumns = [
+  "id",
+  "x_username",
+  "x_username_normalized",
+  "x_user_id",
+  "status",
+  "wallet_address",
+  "transaction_hash",
+  "token_id",
+  "claim_key",
+  "contract_address",
+  "chain_id",
+  "metadata_url",
+  "image_cid",
+  "metadata_cid",
+  "image_url",
+  "pinned_at",
+  "claimed_at",
+] as const;
+
+async function schemaIsHealthy(sql: ReturnType<typeof getDb>) {
+  const tables = await sql<{ table_name: string }[]>`
+    select table_name
+    from information_schema.tables
+    where table_schema = current_schema()
+      and table_name in ('rabbit_hole_eligibility', 'rabbit_hole_claim_attempts')
+  `;
+  if (tables.length !== 2) return false;
+
+  const columns = await sql<{ column_name: string }[]>`
+    select column_name
+    from information_schema.columns
+    where table_schema = current_schema()
+      and table_name = 'rabbit_hole_eligibility'
+  `;
+  const names = new Set(columns.map((column) => column.column_name));
+  if (!requiredEligibilityColumns.every((column) => names.has(column))) return false;
+
+  const indexes = await sql<{ index_name: string }[]>`
+    select indexname as index_name
+    from pg_indexes
+    where schemaname = current_schema()
+      and indexname in (
+        'rabbit_hole_active_wallet_unique',
+        'rabbit_hole_status_updated_idx',
+        'rabbit_hole_attempts_eligibility_idx',
+        'rabbit_hole_metadata_cid_unique',
+        'rabbit_hole_claimed_wallet_idx'
+      )
+  `;
+  return indexes.length === 5;
+}
+
 async function migrate() {
   const sql = getDb();
   await sql`
@@ -106,30 +160,43 @@ async function migrate() {
       applied_at timestamptz not null default now()
     )
   `;
-  for (const migration of rabbitHoleMigrations) {
-    await inTransaction(async (transaction) => {
-      await transaction`select pg_advisory_xact_lock(hashtext('bunny-hood-rabbit-hole-schema'))`;
-      const current = await transaction<{ applied: boolean }[]>`
-        select exists(
-          select 1 from spin_schema_migrations where migration_id = ${migration.id}
-        ) as applied
-      `;
-      if (current[0]?.applied) return;
+  if (await schemaIsHealthy(sql)) return;
+
+  await inTransaction(async (transaction) => {
+    await transaction`select pg_advisory_xact_lock(hashtext('bunny-hood-rabbit-hole-schema'))`;
+    if (await schemaIsHealthy(transaction)) return;
+
+    // Run every structural statement idempotently. This repairs databases where
+    // a migration marker exists but its table/columns were never fully created.
+    for (const migration of rabbitHoleMigrations) {
       for (const statement of migration.statements) await transaction.unsafe(statement);
       await transaction`
         insert into spin_schema_migrations (migration_id)
         values (${migration.id})
         on conflict (migration_id) do nothing
       `;
-    });
-  }
+    }
+  });
 }
 
 export async function ensureRabbitHoleSchema() {
   if (!globalThis.bunnyHoodRabbitHoleSchema) {
     globalThis.bunnyHoodRabbitHoleSchema = migrate().catch((error) => {
       globalThis.bunnyHoodRabbitHoleSchema = undefined;
-      throw error;
+      const message = error instanceof Error ? error.message : "Unknown database error";
+      console.error("Rabbit Hole database initialization failed.", message);
+      if (message.includes("Missing required environment variable: DATABASE_URL")) {
+        throw new HttpError(
+          503,
+          "Rabbit Hole storage is not configured. Add DATABASE_URL to this Vercel environment and redeploy.",
+          "RABBIT_HOLE_DATABASE_NOT_CONFIGURED",
+        );
+      }
+      throw new HttpError(
+        503,
+        "Rabbit Hole storage could not be initialized. Verify DATABASE_URL and the Neon database connection, then retry.",
+        "RABBIT_HOLE_DATABASE_UNAVAILABLE",
+      );
     });
   }
   return globalThis.bunnyHoodRabbitHoleSchema;

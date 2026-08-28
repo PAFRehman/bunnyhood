@@ -250,6 +250,57 @@ export function parseEligibilityImport(value: string): EligibilityImport[] {
   return entries;
 }
 
+export async function addEligibility(entries: EligibilityImport[]) {
+  await ensureRabbitHoleSchema();
+  return inTransaction(async (sql) => {
+    await sql`select pg_advisory_xact_lock(hashtext('rabbit-hole-eligibility-import'))`;
+    const existing = await sql.unsafe<EligibilityRow[]>(
+      `select ${ELIGIBILITY_COLUMNS} from rabbit_hole_eligibility for update`,
+    );
+    const byUsername = new Map(existing.map((row) => [row.x_username_normalized, row]));
+    const byXUserId = new Map(existing.filter((row) => row.x_user_id).map((row) => [row.x_user_id!, row]));
+    const newEntries = entries.filter((entry) => !byUsername.has(entry.username));
+    if (existing.length + newEntries.length > MAX_RABBIT_HOLE_ELIGIBLE) {
+      throw new HttpError(
+        409,
+        `Adding these users would exceed the ${MAX_RABBIT_HOLE_ELIGIBLE}-user Rabbit Hole limit.`,
+        "ELIGIBILITY_LIMIT",
+      );
+    }
+
+    for (const entry of entries) {
+      const current = byUsername.get(entry.username);
+      const xIdOwner = entry.xUserId ? byXUserId.get(entry.xUserId) : null;
+      if (current?.x_user_id && entry.xUserId && current.x_user_id !== entry.xUserId) {
+        throw new HttpError(409, `@${entry.username} is already bound to a different X identity.`, "X_ID_CONFLICT");
+      }
+      if (xIdOwner && xIdOwner.id !== current?.id) {
+        throw new HttpError(409, `X user ID ${entry.xUserId} already belongs to @${xIdOwner.x_username}.`, "X_ID_CONFLICT");
+      }
+      if (current) {
+        await sql`
+          update rabbit_hole_eligibility
+          set x_username = ${entry.username},
+              x_user_id = coalesce(x_user_id, ${entry.xUserId}),
+              imported_at = now(),
+              updated_at = now()
+          where id = ${current.id}::uuid
+        `;
+      } else {
+        const id = randomUUID();
+        await sql`
+          insert into rabbit_hole_eligibility (
+            id, x_username, x_username_normalized, x_user_id
+          ) values (
+            ${id}, ${entry.username}, ${entry.username}, ${entry.xUserId}
+          )
+        `;
+      }
+    }
+    return getEligibilityStatsWithSql(sql);
+  });
+}
+
 export async function replaceEligibility(entries: EligibilityImport[]) {
   await ensureRabbitHoleSchema();
   return inTransaction(async (sql) => {
