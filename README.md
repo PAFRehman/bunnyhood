@@ -8,7 +8,8 @@ Bunny Hood is a production Next.js application deployed on Vercel. Its Rabbit Ho
 
 | Route | Purpose | Current access |
 | --- | --- | --- |
-| [`/RabbitHole`](https://www.bunnyhood.xyz/RabbitHole) | Eligibility search, X verification, wallet entry, realtime mint status, SBT result, and admin eligibility manager | Admin-only while `RABBIT_HOLE_PUBLIC=false` |
+| [`/RabbitHole`](https://www.bunnyhood.xyz/RabbitHole) | Eligibility search, X verification, wallet entry, realtime mint status, and SBT result | Admin-only while `RABBIT_HOLE_PUBLIC=false` |
+| [`/admin/rabbit-hole`](https://www.bunnyhood.xyz/admin/rabbit-hole) | Dedicated add/replace eligibility controls and full claim-wallet ledger | Admin password required |
 | [`/admin/spin?next=/RabbitHole`](https://www.bunnyhood.xyz/admin/spin?next=/RabbitHole) | Admin sign-in and redirect to Rabbit Hole | Admin password required |
 | [`/SpinTheWheel`](https://www.bunnyhood.xyz/SpinTheWheel) | X-connected rewards and wheel experience | Public |
 | `/auction/*` | Retired auction URLs | Permanently redirect to `/RabbitHole` |
@@ -105,10 +106,10 @@ The username search is therefore only a discovery tool. Eligibility is finally e
 
 ### Open the manager
 
-1. Open [`/admin/spin?next=/RabbitHole`](https://www.bunnyhood.xyz/admin/spin?next=/RabbitHole).
+1. Open [`/admin/rabbit-hole`](https://www.bunnyhood.xyz/admin/rabbit-hole).
 2. Enter the existing Bunny Hood admin password.
-3. After redirecting to `/RabbitHole`, scroll to **PRIVATE ADMIN · ELIGIBILITY MANAGER**.
-4. Paste the complete desired editable list into **REPLACE EDITABLE ELIGIBILITY LIST**.
+3. Paste new usernames into **ADD ELIGIBLE USERS** and select **ADD USERS**. This keeps everyone already loaded.
+4. Use **REPLACE WHOLE EDITABLE LIST** only when intentionally rebuilding the unclaimed portion of the ledger.
 5. Select **IMPORT LIST**, confirm the replacement, and verify the loaded/claimed/minting/failed counters and table.
 
 The form replaces the editable list; it is not an append-only import. Always paste every unclaimed user who should remain eligible.
@@ -145,6 +146,7 @@ A username-only entry is less secure operationally: the first OAuth-authenticate
 
 - The editable import contains at most 100 entries.
 - Duplicate normalized usernames or duplicate X user IDs are rejected.
+- **Add users** appends new rows and updates matching rows without removing any existing eligibility or claim.
 - An already-bound username cannot be rebound to a different X user ID.
 - Existing rows in `claimed` or `minting` state are preserved even if omitted from the replacement.
 - Unclaimed rows omitted from the replacement are deleted.
@@ -260,6 +262,7 @@ The ERC-721 `Approval` and `ApprovalForAll` events are declared for interface co
 | `GET /api/rabbit-hole/image/:claimId` | Public | Returns the personalized PNG; `?download=1` sends it as an attachment |
 | `GET /api/admin/rabbit-hole/eligibility?search=...` | Admin only | Returns detailed rows and status counts |
 | `POST /api/admin/rabbit-hole/eligibility` | Admin and same-origin only | Parses and replaces the editable eligibility list |
+| `PUT /api/admin/rabbit-hole/eligibility` | Admin and same-origin only | Adds or updates entries without removing existing rows |
 
 The public IPFS metadata and PNG intentionally reveal the X username, captured profile image, collection, contract, and chain associated with a public blockchain token. Do not use this drop for identities that require private metadata.
 
@@ -269,8 +272,8 @@ The public IPFS metadata and PNG intentionally reveal the X username, captured p
 | --- | --- | --- |
 | `lib/rabbit-hole/config.ts` | `normalizeXUsername`, `isValidXUsername`, `isRabbitHolePublic`, `getRabbitHoleNetwork`, `getRabbitHoleMinterKey` | Input normalization, access flag, chain selection, addresses, RPC, and secret-key validation |
 | `lib/rabbit-hole/chain.ts` | `getRabbitHoleChainClients`, `getRabbitHolePublicClient` | Creates server-only viem public/wallet clients |
-| `lib/rabbit-hole/schema.ts` | `ensureRabbitHoleSchema` | Applies Rabbit Hole migrations `009` and `010` once under an advisory lock |
-| `lib/rabbit-hole/data.ts` | `publicEligibility`, `findEligibilityByUsername`, `getEligibilityById`, `bindAuthenticatedEligibility`, `getEligibilityStats`, `listEligibility`, `parseEligibilityImport`, `replaceEligibility` | Eligibility parsing, X binding, admin list management, counters, and public response shaping |
+| `lib/rabbit-hole/schema.ts` | `ensureRabbitHoleSchema` | Verifies and self-repairs Rabbit Hole migrations `009` and `010` under an advisory lock |
+| `lib/rabbit-hole/data.ts` | `publicEligibility`, `findEligibilityByUsername`, `getEligibilityById`, `bindAuthenticatedEligibility`, `getEligibilityStats`, `listEligibility`, `parseEligibilityImport`, `addEligibility`, `replaceEligibility` | Eligibility parsing, X binding, admin list management, counters, and public response shaping |
 | `lib/rabbit-hole/art.ts` | `snapshotXProfileImage`, `renderRabbitHoleSbtPng` | Safe X PFP capture and perspective-clipped PNG rendering on the supplied master art |
 | `lib/rabbit-hole/pinata.ts` | `pinRabbitHoleSbt`, `ipfsGatewayUrl` | Server-only Pinata file/JSON pinning and display-gateway URLs |
 | `lib/rabbit-hole/claim.ts` | `rabbitHoleClaimKey`, `reconcileRabbitHoleClaim`, `mintRabbitHoleSbt` | Deterministic identity key, crash/timeout recovery, duplicate protection, sponsored mint, and final database record |
@@ -604,6 +607,8 @@ As of 2026-08-27, this repository has a code-level security review, build/securi
 | Symptom | Likely cause | Resolution |
 | --- | --- | --- |
 | `/RabbitHole` redirects to admin login | Expected while `RABBIT_HOLE_PUBLIC=false`, or admin cookie expired | Sign in at `/admin/spin?next=/RabbitHole`; only set the flag true after launch checks |
+| `Rabbit Hole storage is not configured` | `DATABASE_URL` is missing from the active Vercel environment | Add the pooled Neon `DATABASE_URL` to Production/Preview as needed and redeploy |
+| `Rabbit Hole storage could not be initialized` | Invalid/unreachable Neon URL, paused database, or incomplete schema | Verify the Neon connection and redeploy; startup will safely repair missing Rabbit Hole tables/columns |
 | Old auction page still appears | Old Vercel deployment/domain alias or browser/CDN cache | Confirm production uses the commit containing the redirect, redeploy, and test `/auction` in a private window |
 | **CONTRACT NOT CONFIGURED** | Address missing for the selected `RABBIT_HOLE_NETWORK` | Set the matching testnet/mainnet contract variable in Vercel and redeploy |
 | `No Rabbit Hole SBT contract was found` | Wrong address/network or deployment failed | Check chain ID, explorer bytecode, address, and RPC |
@@ -641,6 +646,7 @@ npm test
 | Path | Purpose |
 | --- | --- |
 | `app/RabbitHole/` | Page, animation/UI, admin manager, and styles |
+| `app/admin/rabbit-hole/` | Dedicated eligibility and claimed-wallet admin panel |
 | `app/api/rabbit-hole/` | Search, session, X start, claim, metadata, and image APIs |
 | `app/api/admin/rabbit-hole/eligibility/route.ts` | Private eligibility read/import API |
 | `contracts/BunnyHoodRabbitHoleSBT.sol` | Permanent ERC-5192 SBT contract |
@@ -658,6 +664,6 @@ npm test
 
 ## Spin The Wheel
 
-The same application also contains `/SpinTheWheel` and the private `/admin/spin` Neon control room. Neon is its only request-path source of truth; points, spins, referrals, wins, roles, and current wallets are permanent. The admin dashboard reads Neon directly, supports validated `.xlsx` exports and large cursor-streamed CSV exports, and retains the existing storage-safety protections.
+The same application also contains `/SpinTheWheel` and the private `/admin/spin` Neon control room. Neon is its only request-path source of truth; points, spins, referrals, wins, roles, and current wallets are permanent. The admin dashboard reads Neon directly, includes a private top-15 referrer leaderboard ranked by successful referrals, supports validated `.xlsx` exports and large cursor-streamed CSV exports, and retains the existing storage-safety protections.
 
 See [`SPIN_THE_WHEEL_SETUP.md`](SPIN_THE_WHEEL_SETUP.md) for the complete wheel configuration. Never commit `.env.local`, database URLs, X secrets, contract private keys, or admin credentials.
