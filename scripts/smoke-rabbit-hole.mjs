@@ -75,6 +75,13 @@ try {
     "Private Rabbit Hole did not redirect through the admin gate.",
   );
 
+  const adminPage = await fetch(`http://127.0.0.1:${port}/admin/rabbit-hole`, { redirect: "manual" });
+  assert(adminPage.status === 307, `Rabbit Hole admin gate returned ${adminPage.status}.`);
+  assert(
+    adminPage.headers.get("location") === "/admin/spin?next=/admin/rabbit-hole",
+    "Rabbit Hole eligibility manager did not redirect through the admin gate.",
+  );
+
   const status = await fetch(`http://127.0.0.1:${port}/api/rabbit-hole/status?username=alice`);
   assert(status.status === 401, `Private eligibility API returned ${status.status} without an admin session.`);
 } finally {
