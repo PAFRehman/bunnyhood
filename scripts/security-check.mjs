@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { createHash } from "node:crypto";
 
 const root = process.cwd();
 const skipped = new Set([".git", ".next", "node_modules"]);
@@ -30,6 +31,7 @@ const migration = [
   "007_unique_campaign_winners.sql",
   "008_five_campaign_tasks.sql",
   "009_rabbit_hole_sbt.sql",
+  "010_rabbit_hole_ipfs_art.sql",
 ].map((name) => readFileSync(join(root, "db/migrations", name), "utf8")).join("\n");
 const wheel = readFileSync(join(root, "lib/spin/wheel.ts"), "utf8");
 const campaigns = readFileSync(join(root, "lib/spin/campaigns.ts"), "utf8");
@@ -53,6 +55,8 @@ const rabbitClaim = readFileSync(join(root, "lib/rabbit-hole/claim.ts"), "utf8")
 const rabbitData = readFileSync(join(root, "lib/rabbit-hole/data.ts"), "utf8");
 const rabbitPage = readFileSync(join(root, "app/RabbitHole/page.tsx"), "utf8");
 const rabbitArt = readFileSync(join(root, "lib/rabbit-hole/art.ts"), "utf8");
+const rabbitPinata = readFileSync(join(root, "lib/rabbit-hole/pinata.ts"), "utf8");
+const rabbitMasterArt = readFileSync(join(root, "public/assets/rabbit-hole-box-original.png"));
 const storageGatedRoutes = [
   "app/api/spin/auth/x/start/route.ts",
   "app/api/spin/auth/x/callback/route.ts",
@@ -72,6 +76,7 @@ if (/NEXT_PUBLIC_(?:X_|DATABASE|TOKEN_|CODE_|PRIZE_|RATE_|ADMIN_|CRON_|GOOGLE_)/
   failures.push("A private environment variable was exposed with NEXT_PUBLIC_.");
 }
 if (/NEXT_PUBLIC_(?:RABBIT_HOLE|ROBINHOOD)/.test(source)) failures.push("A Rabbit Hole contract, RPC, or signer setting was exposed to browser code.");
+if (/NEXT_PUBLIC_(?:PINATA|IPFS)/.test(source)) failures.push("A private Pinata or IPFS setting was exposed to browser code.");
 if (/AUCTION_(?:MAINNET|TESTNET)|USDG_(?:MAINNET|TESTNET)|api\/admin\/auction/.test(source)) failures.push("Retired auction configuration or API code remains in the repository.");
 if (/script\.google\.com\/macros\/s\/(?!REPLACE_ME)[A-Za-z0-9_-]{20,}\/exec/.test(source)) {
   failures.push("A real Google Apps Script URL appears in tracked source.");
@@ -150,6 +155,11 @@ if (!/MAX_RABBIT_HOLE_ELIGIBLE = 100/.test(source) || !/rabbit_hole_active_walle
 if (!/x_user_id = \$1/.test(rabbitData) || !/bindAuthenticatedEligibility/.test(rabbitClaim)) failures.push("Eligible usernames are not bound to authenticated X identities.");
 if (!/verifyAdminTicket/.test(rabbitPage) || !/isRabbitHolePublic/.test(rabbitPage)) failures.push("Rabbit Hole admin-preview gate is missing.");
 if (!/ALLOWED_PFP_HOSTS/.test(rabbitArt) || !/MAX_PFP_BYTES/.test(rabbitArt)) failures.push("X profile image snapshot fetching is not host and size bounded.");
+if (!/rabbit-hole-box-original\.png/.test(rabbitArt) || !/renderRabbitHoleSbtPng/.test(rabbitArt) || !/clipPathUnits="userSpaceOnUse"/.test(rabbitArt)) failures.push("The supplied Rabbit Hole master art or perspective-clipped PNG renderer is missing.");
+if (createHash("sha256").update(rabbitMasterArt).digest("hex") !== "90e50c91697496100d92c6365ac7567995e8ceabfe8255064fb0752fbfee6e38" || rabbitMasterArt.readUInt32BE(16) !== 1254 || rabbitMasterArt.readUInt32BE(20) !== 1254) failures.push("The user-supplied 1254px Rabbit Hole master artwork was modified.");
+if (!/pinFileToIPFS/.test(rabbitPinata) || !/pinJSONToIPFS/.test(rabbitPinata) || !/PINATA_JWT/.test(rabbitPinata) || !/pinRabbitHoleSbt/.test(rabbitClaim)) failures.push("Rabbit Hole artwork and metadata are not pinned to IPFS before minting.");
+if (rabbitClaim.indexOf("const pinned = await pinRabbitHoleSbt") < 0 || rabbitClaim.indexOf("const pinned = await pinRabbitHoleSbt") > rabbitClaim.indexOf("walletClient.writeContract")) failures.push("The Rabbit Hole mint can be submitted before its IPFS assets are pinned.");
+if (!/image_cid/.test(migration) || !/metadata_cid/.test(migration) || !/rabbit_hole_claimed_wallet_idx/.test(migration)) failures.push("Rabbit Hole IPFS identifiers or claimed-wallet ledger index are missing.");
 if (/debug:\s*stack|Internal Error:/.test(readFileSync(join(root, "lib/spin/http.ts"), "utf8"))) failures.push("Internal server stack details are exposed to clients.");
 
 if (failures.length) {

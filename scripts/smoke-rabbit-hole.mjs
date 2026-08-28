@@ -55,6 +55,8 @@ try {
   const html = await page.text();
   assert(page.status === 200, `Public Rabbit Hole returned ${page.status}.`);
   assert(html.includes("ENTER THE RABBIT HOLE"), "Rabbit Hole intro copy is missing from the rendered HTML.");
+  assert(html.includes("rabbit-hole-box-original.png"), "The supplied Rabbit Hole master artwork is missing.");
+  assert(html.includes("pinned to IPFS"), "The IPFS-backed claim sequence is missing.");
   assert(!html.toLowerCase().includes("auction"), "Retired auction copy remains on the Rabbit Hole page.");
 
   const legacy = await fetch(`http://127.0.0.1:${port}/auction/legacy`, { redirect: "manual" });

@@ -19,6 +19,12 @@ type PublicEligibility = {
   contractAddress: string | null;
   chainId: number | null;
   metadataUrl: string | null;
+  imageUrl: string | null;
+  imageCid: string | null;
+  metadataCid: string | null;
+  imageGatewayUrl: string | null;
+  metadataGatewayUrl: string | null;
+  pinnedAt: string | null;
   claimedAt: string | null;
   updatedAt: string | null;
 } | {
@@ -61,6 +67,10 @@ type AdminRow = {
   wallet: string | null;
   transactionHash: string | null;
   tokenId: string | null;
+  contractAddress: string | null;
+  imageCid: string | null;
+  metadataCid: string | null;
+  metadataGatewayUrl: string | null;
   claimedAt: string | null;
   updatedAt: string | null;
 };
@@ -96,18 +106,13 @@ function short(value: string | null | undefined, front = 7, back = 5) {
 function Box({ profile, claimedImage }: { profile?: string | null; claimedImage?: string | null }) {
   return (
     <div className="rabbit-box-stage" aria-label="Bunny Hood soulbound box preview">
-      <div className="rabbit-box">
-        <div className="rabbit-box-face rabbit-box-front">
-          {claimedImage
-            ? <img src={claimedImage} alt="Your unique Bunny Hood Rabbit Hole SBT" />
-            : profile
-              ? <img src={profile} alt="Your X profile" referrerPolicy="no-referrer" />
-              : <span className="rabbit-box-placeholder">?</span>}
-          {!claimedImage && <b>YOUR SOUL · YOUR BOX</b>}
-        </div>
-        <div className="rabbit-box-face rabbit-box-side"><strong>BH</strong><small>SOULBOUND</small></div>
-        <div className="rabbit-box-face rabbit-box-top">?</div>
-      </div>
+      {claimedImage
+        ? <img className="rabbit-box-art" src={claimedImage} alt="Your unique Bunny Hood Rabbit Hole SBT" />
+        : <svg className="rabbit-box-art" viewBox="0 0 1254 1254" role="img" aria-label={profile ? "Your X profile printed on the original Bunny Hood box" : "Original Bunny Hood Rabbit Hole box"}>
+            <defs><clipPath id="rabbit-live-front"><polygon points="257,478 587,582 587,1013 257,909" /></clipPath></defs>
+            <image href="/assets/rabbit-hole-box-original.png" x="0" y="0" width="1254" height="1254" />
+            {profile && <g clipPath="url(#rabbit-live-front)"><image href={profile} x="257" y="478" width="330" height="431" preserveAspectRatio="xMidYMid slice" transform="matrix(1 0.3151515152 0 1 0 -80.994)" /></g>}
+          </svg>}
       <span className="rabbit-box-ground">NON-TRANSFERABLE · FOREVER YOURS</span>
     </div>
   );
@@ -236,7 +241,7 @@ export function RabbitHoleApp() {
       });
       setState((current) => current ? { ...current, eligibility: result.eligibility } : current);
       setMessage(result.eligibility.eligible && result.eligibility.status === "claimed"
-        ? "Your unique soulbound box is onchain. It can never be transferred or sold."
+        ? "Your unique box is pinned to IPFS and its soulbound ownership is confirmed onchain."
         : "Mint submitted. The page is watching the chain for confirmation.");
       setWallet("");
       await loadState();
@@ -255,6 +260,15 @@ export function RabbitHoleApp() {
       setMessage("X disconnected from this browser.");
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "X could not be disconnected.");
+    }
+  }
+
+  async function copyClaimedWallet(value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setMessage("Claimed wallet copied.");
+    } catch {
+      setError("The wallet could not be copied. Select the full address manually.");
     }
   }
 
@@ -289,6 +303,11 @@ export function RabbitHoleApp() {
   const explorerToken = eligibility?.eligible && eligibility.contractAddress && state
     ? `${state.network.explorerUrl}/token/${eligibility.contractAddress}/instance/${eligibility.tokenId ?? ""}`
     : null;
+  const downloadImage = eligibility?.eligible ? `/api/rabbit-hole/image/${eligibility.id}?download=1` : null;
+  const shareTarget = explorerToken || "https://www.bunnyhood.xyz/RabbitHole";
+  const shareOnX = eligibility?.eligible && eligibility.status === "claimed"
+    ? `https://x.com/intent/post?text=${encodeURIComponent(`I entered the Bunny Hood Rabbit Hole and claimed my permanent soulbound box as @${eligibility.username}.`)}&url=${encodeURIComponent(shareTarget)}`
+    : null;
   const progress = state ? Math.min(100, Math.round((state.stats.claimed / Math.max(1, state.stats.total)) * 100)) : 0;
   const importCount = useMemo(() => importText.split(/\r?\n/).filter((line) => line.trim() && !line.trim().startsWith("#")).length, [importText]);
 
@@ -306,7 +325,7 @@ export function RabbitHoleApp() {
         <div className="rabbit-hero-copy">
           <p className="rabbit-kicker">01 · DESCEND</p>
           <h1>FIND YOUR<br /><em>BOX.</em></h1>
-          <p>One of 100 identities may pass. Connect the right X account, choose the receiving wallet, and your profile is permanently printed onto a non-transferable Bunny Hood SBT.</p>
+          <p>One of 100 identities may pass. Connect the right X account, choose the receiving wallet, and your profile is perspective-printed onto the original Bunny Hood box, pinned to IPFS, and minted as a non-transferable SBT.</p>
           <div className="rabbit-chain-line"><span>{state?.network.name ?? "ROBINHOOD CHAIN"}</span><span>EIP-5192</span><span>SOULBOUND</span></div>
         </div>
         <Box profile={state?.user?.xProfileImageUrl} claimedImage={claimedImage} />
@@ -335,7 +354,7 @@ export function RabbitHoleApp() {
       </section>
 
       <section className="rabbit-claim-section">
-        <div className="rabbit-claim-copy"><p className="rabbit-kicker">03 · BIND YOUR SOUL</p><h2>CLAIM<br /><em>FOREVER.</em></h2><p>The SBT is locked to the wallet at mint. It cannot be transferred, approved, sold, or moved by you—or by Bunny Hood.</p><ul><li><b>01</b> Verify the eligible X identity</li><li><b>02</b> Enter the final receiving wallet</li><li><b>03</b> Watch the mint confirm onchain</li></ul></div>
+        <div className="rabbit-claim-copy"><p className="rabbit-kicker">03 · BIND YOUR SOUL</p><h2>CLAIM<br /><em>FOREVER.</em></h2><p>The SBT is locked to the wallet at mint. It cannot be transferred, approved, sold, or moved by you—or by Bunny Hood.</p><ul><li><b>01</b> Verify the eligible X identity</li><li><b>02</b> Pin the personalized PNG and metadata to IPFS</li><li><b>03</b> Mint the IPFS token URI onchain</li></ul></div>
         <div className="rabbit-claim-card">
           {loading && <div className="rabbit-card-loading">READING THE LEDGER…</div>}
           {!loading && !state?.authenticated && <div className="rabbit-connect-card"><span className="rabbit-x-mark">X</span><small>IDENTITY REQUIRED</small><h3>Connect the X account on the eligibility list.</h3><p>Search is only a preview. X OAuth proves that the eligible username is actually yours.</p><a href="/api/rabbit-hole/auth/x/start">CONNECT X TO CONTINUE <b>↗</b></a></div>}
@@ -346,7 +365,7 @@ export function RabbitHoleApp() {
               <button type="button" onClick={disconnect}>DISCONNECT</button>
             </div>
             {!eligibility?.eligible && <div className="rabbit-not-eligible"><StatusBadge status="not_eligible" /><h3>This X identity is outside the current Rabbit Hole.</h3><p>Connect the exact account whose username appears in the 100-user eligibility ledger.</p></div>}
-            {eligibility?.eligible && eligibility.status === "claimed" && <div className="rabbit-claimed-card"><StatusBadge status="claimed" /><h3>Your soulbound box is onchain.</h3><img src={claimedImage ?? ""} alt={`Rabbit Hole SBT for @${eligibility.username}`} /><div className="rabbit-claim-facts"><span>Token<strong>#{eligibility.tokenId}</strong></span><span>Wallet<strong>{short(eligibility.wallet)}</strong></span><span>Transferable<strong>NO</strong></span></div><div className="rabbit-link-row">{explorerTx && <a href={explorerTx} target="_blank" rel="noreferrer">VIEW TRANSACTION ↗</a>}{explorerToken && <a href={explorerToken} target="_blank" rel="noreferrer">VIEW SBT ↗</a>}</div></div>}
+            {eligibility?.eligible && eligibility.status === "claimed" && <div className="rabbit-claimed-card"><StatusBadge status="claimed" /><h3>Your soulbound box is onchain.</h3><img src={claimedImage ?? ""} alt={`Rabbit Hole SBT for @${eligibility.username}`} /><div className="rabbit-claim-facts"><span>Token<strong>#{eligibility.tokenId}</strong></span><span>Wallet<strong title={eligibility.wallet ?? ""}>{short(eligibility.wallet)}</strong></span><span>Transferable<strong>NO</strong></span></div><div className="rabbit-link-row rabbit-primary-actions">{downloadImage && <a href={downloadImage} download={`bunny-hood-rabbit-hole-${eligibility.username}.png`}>DOWNLOAD PNG ↓</a>}{shareOnX && <a href={shareOnX} target="_blank" rel="noreferrer">SHARE ON X ↗</a>}</div><small className="rabbit-share-note">X does not allow a website to attach an image through the share composer. Download the PNG, then add it to the opened X post.</small><div className="rabbit-link-row">{eligibility.metadataGatewayUrl && <a href={eligibility.metadataGatewayUrl} target="_blank" rel="noreferrer">VIEW IPFS ↗</a>}{explorerTx && <a href={explorerTx} target="_blank" rel="noreferrer">VIEW TRANSACTION ↗</a>}{explorerToken && <a href={explorerToken} target="_blank" rel="noreferrer">VIEW SBT ↗</a>}</div></div>}
             {eligibility?.eligible && eligibility.status === "minting" && <div className="rabbit-minting-card"><div className="rabbit-orbit-loader"><i /><i /><span>BH</span></div><StatusBadge status="minting" /><h3>Opening your box onchain…</h3><p>The mint was submitted. This page checks the chain every three seconds and will safely recover if confirmation takes longer.</p>{explorerTx && <a href={explorerTx} target="_blank" rel="noreferrer">WATCH TRANSACTION ↗</a>}</div>}
             {eligibility?.eligible && (eligibility.status === "eligible" || eligibility.status === "failed") && <form className="rabbit-wallet-form" onSubmit={claim}>
               <StatusBadge status={eligibility.status} />
@@ -363,10 +382,10 @@ export function RabbitHoleApp() {
       <section className="rabbit-supply-strip"><div><strong>{state?.stats.claimed ?? 0}</strong><span>CLAIMED</span></div><div className="rabbit-progress"><i><b style={{ width: `${progress}%` }} /></i><span>{progress}% OF LOADED IDENTITIES HAVE ENTERED</span></div><div><strong>{Math.max(0, (state?.stats.total ?? 0) - (state?.stats.claimed ?? 0))}</strong><span>REMAINING</span></div></section>
 
       {state?.access === "admin_preview" && <section className="rabbit-admin-section">
-        <div className="rabbit-admin-heading"><div><p className="rabbit-kicker">PRIVATE ADMIN · ELIGIBILITY MANAGER</p><h2>LOAD THE<br /><em>100.</em></h2></div><p>This preview remains inaccessible without the existing Bunny Hood admin session. Paste one username per line, or <code>username,x_user_id</code> for stronger pre-bound identity security.</p></div>
+        <div className="rabbit-admin-heading"><div><p className="rabbit-kicker">PRIVATE ADMIN · ELIGIBILITY MANAGER</p><h2>LOAD THE<br /><em>100.</em></h2></div><p>This preview remains inaccessible without the existing Bunny Hood admin session. Paste one username per line, or <code>username,x_user_id</code> for stronger pre-bound identity security. Every claimed wallet remains stored in the permanent claim ledger and is shown in full below.</p></div>
         <div className="rabbit-admin-grid">
           <form className="rabbit-import-card" onSubmit={importEligibility}><label htmlFor="rabbit-import">REPLACE EDITABLE ELIGIBILITY LIST</label><textarea id="rabbit-import" value={importText} onChange={(event) => setImportText(event.target.value)} placeholder={"username\nanother_user,123456789\nhttps://x.com/thirduser"} rows={12} required /><div><span className={importCount > 100 ? "over" : ""}>{importCount} / 100 ROWS</span><button disabled={importing || importCount === 0 || importCount > 100}>{importing ? "IMPORTING…" : "IMPORT LIST"}</button></div><small>Confirmed and currently minting records are permanently preserved during replacements.</small></form>
-          <div className="rabbit-admin-records"><form onSubmit={(event) => { event.preventDefault(); void loadAdmin(adminSearch); }}><input value={adminSearch} onChange={(event) => setAdminSearch(event.target.value)} placeholder="Search username, X ID, wallet or tx" /><button>SEARCH</button></form><div className="rabbit-admin-stats"><span><b>{adminData?.stats.total ?? 0}</b>Loaded</span><span><b>{adminData?.stats.claimed ?? 0}</b>Claimed</span><span><b>{adminData?.stats.minting ?? 0}</b>Minting</span><span><b>{adminData?.stats.failed ?? 0}</b>Failed</span></div><div className="rabbit-table-wrap"><table><thead><tr><th>Identity</th><th>Status</th><th>Wallet</th><th>Token</th></tr></thead><tbody>{adminData?.rows.map((row) => <tr key={row.id}><td><strong>@{row.username}</strong><small>{row.xUserId || "X ID binds at first login"}</small></td><td><StatusBadge status={row.status} /></td><td>{short(row.wallet)}</td><td>{row.tokenId ? `#${row.tokenId}` : "—"}</td></tr>)}</tbody></table>{adminData?.rows.length === 0 && <p className="rabbit-empty">No eligibility records loaded yet.</p>}</div></div>
+          <div className="rabbit-admin-records"><form onSubmit={(event) => { event.preventDefault(); void loadAdmin(adminSearch); }}><input value={adminSearch} onChange={(event) => setAdminSearch(event.target.value)} placeholder="Search username, X ID, wallet or tx" /><button>SEARCH</button></form><div className="rabbit-admin-stats"><span><b>{adminData?.stats.total ?? 0}</b>Loaded</span><span><b>{adminData?.stats.claimed ?? 0}</b>Claimed</span><span><b>{adminData?.stats.minting ?? 0}</b>Minting</span><span><b>{adminData?.stats.failed ?? 0}</b>Failed</span></div><div className="rabbit-table-wrap"><table><thead><tr><th>Identity</th><th>Status</th><th>Claimed wallet</th><th>Token / IPFS</th></tr></thead><tbody>{adminData?.rows.map((row) => <tr key={row.id}><td><strong>@{row.username}</strong><small>{row.xUserId || "X ID binds at first login"}</small></td><td><StatusBadge status={row.status} /></td><td>{row.wallet ? <div className="rabbit-wallet-cell"><code>{row.wallet}</code><button type="button" onClick={() => void copyClaimedWallet(row.wallet!)}>COPY</button></div> : "—"}</td><td><strong>{row.tokenId ? `#${row.tokenId}` : "—"}</strong>{row.metadataGatewayUrl && <a href={row.metadataGatewayUrl} target="_blank" rel="noreferrer">IPFS ↗</a>}</td></tr>)}</tbody></table>{adminData?.rows.length === 0 && <p className="rabbit-empty">No eligibility records loaded yet.</p>}</div></div>
         </div>
       </section>}
 
