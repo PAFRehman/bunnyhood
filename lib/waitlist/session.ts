@@ -55,6 +55,8 @@ export async function getOrCreateWaitlistSession(request: Request, requestedRefe
     const matches = await sql<{ exists: boolean }[]>`
       select exists(
         select 1 from waitlist_entries where referral_code = ${requestedCode}
+        union all
+        select 1 from waitlist_sessions where reserved_referral_code = ${requestedCode}
       ) as exists
     `;
     if (matches[0]?.exists) incomingCode = requestedCode;

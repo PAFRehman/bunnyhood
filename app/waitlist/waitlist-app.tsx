@@ -21,6 +21,8 @@ type State = {
   totalEntries: number;
   serverNow: string;
   tasks: { followNotifications: TaskProgress; engagePost: TaskProgress };
+  postProof: { xUsername: string; postUrl: string; verifiedAt: string } | null;
+  postReferralCode: string | null;
   entry: Entry | null;
   leaderboard: Entry[];
   actions: { profileUrl: string; postUrl: string | null };
@@ -99,6 +101,20 @@ export function WaitlistApp() {
     );
   }, [referralLink]);
 
+  const reservedPostReferralCode = state?.postReferralCode ?? null;
+  const joinPostReferralLink = useMemo(() => {
+    if (!reservedPostReferralCode || typeof window === "undefined") return "";
+    return `${window.location.origin}/waitlist?ref=${reservedPostReferralCode}`;
+  }, [reservedPostReferralCode]);
+
+  const joinPostComposerUrl = useMemo(() => {
+    if (!joinPostReferralLink) return "";
+    return xShareUrl(
+      `I joined the @BunnysHood upcoming-products waitlist. Join through my referral link and climb the Hood with me. 🐰\n\nReferral code: ${reservedPostReferralCode}`,
+      joinPostReferralLink,
+    );
+  }, [joinPostReferralLink, reservedPostReferralCode]);
+
   const followPendingStartedAt = state?.tasks.followNotifications.startedAt
     && !state.tasks.followNotifications.completedAt
     ? state.tasks.followNotifications.startedAt
@@ -129,6 +145,7 @@ export function WaitlistApp() {
   const requiredComplete = Boolean(
     state?.tasks.followNotifications.completedAt && state.tasks.engagePost.completedAt,
   );
+  const joinReady = requiredComplete && Boolean(state?.postProof);
 
   async function post<T>(url: string, body: unknown) {
     if (!state) throw new Error("Waitlist is still loading.");
@@ -168,6 +185,10 @@ export function WaitlistApp() {
 
   async function join(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!state?.postProof) {
+      await submitJoinPost();
+      return;
+    }
     setBusy("join");
     setError("");
     try {
@@ -177,6 +198,23 @@ export function WaitlistApp() {
       setMessage(`You joined as ${padJoinNumber(result.entry.joinNumber)}.`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Waitlist entry could not be saved.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function submitJoinPost() {
+    setBusy("join-post");
+    setError("");
+    try {
+      const result = await post<{ proof: { xUsername: string; postUrl: string } }>(
+        "/api/waitlist/join-post",
+        { postUrl: bonusPostUrl },
+      );
+      await loadState();
+      setMessage(`Post verified for @${result.proof.xUsername}. You can now enter your wallet.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The X post could not be verified.");
     } finally {
       setBusy(null);
     }
@@ -222,9 +260,9 @@ export function WaitlistApp() {
     return (
       <section className="waitlist-loading">
         <span>BH</span>
-        <p>UPCOMING PRODUCTS · NO X LOGIN REQUIRED</p>
+        <p>UPCOMING PRODUCTS · NO X LOGIN · PUBLIC POST REQUIRED</p>
         <h1>GET<br />IN LINE.</h1>
-        <ul><li>Follow + turn notifications on.</li><li>Like, repost + comment.</li></ul>
+        <ul><li>Follow + turn notifications on.</li><li>Like, repost + comment.</li><li>Submit your public X post.</li></ul>
         <small>{error || "OPENING THE UPCOMING-PRODUCTS LIST"}</small>
       </section>
     );
@@ -258,7 +296,7 @@ export function WaitlistApp() {
         <div className="waitlist-hero-copy">
           <p className="waitlist-kicker"><i /> UPCOMING PRODUCTS · EARLY ACCESS</p>
           <h1>GET<br /><em>IN LINE.</em></h1>
-          <p>Complete two launch tasks, enter one EVM wallet, and secure your place for upcoming BunnyHood products. Every successful referral moves you higher.</p>
+          <p>Complete two launch tasks, submit one public BunnyHood post, then enter one EVM wallet. Every successful referral moves you higher.</p>
           <div className="waitlist-hero-stats">
             <span><b>{format.format(state.totalEntries)}</b> IN THE HOOD</span>
             <span><b>+1</b> PER REFERRAL</span>
@@ -304,22 +342,41 @@ export function WaitlistApp() {
           <div className="waitlist-entry-copy">
             <p className="waitlist-kicker">ONE WALLET · ONE PLACE</p>
             <h2>{state.entry ? "YOU’RE\nIN." : "CLAIM\nYOUR #."}</h2>
-            <p>Your join number never changes. The two tasks start you at 2 points; referrals and the one-time post bonus move you higher.</p>
+            <p>Your join number never changes. The two tasks and verified post start you at 3 points; successful referrals move you higher.</p>
           </div>
 
           {!state.entry ? (
             <form className="waitlist-wallet-form" onSubmit={join}>
               <div className="waitlist-lock-state">
-                <span>{requiredComplete ? "02 / 02 COMPLETE" : `${Number(Boolean(state.tasks.followNotifications.completedAt)) + Number(Boolean(state.tasks.engagePost.completedAt))} / 02 COMPLETE`}</span>
-                <div><i className={state.tasks.followNotifications.completedAt ? "done" : ""} /><i className={state.tasks.engagePost.completedAt ? "done" : ""} /></div>
+                <span>{`${Number(Boolean(state.tasks.followNotifications.completedAt)) + Number(Boolean(state.tasks.engagePost.completedAt)) + Number(Boolean(state.postProof))} / 03 COMPLETE`}</span>
+                <div><i className={state.tasks.followNotifications.completedAt ? "done" : ""} /><i className={state.tasks.engagePost.completedAt ? "done" : ""} /><i className={state.postProof ? "done" : ""} /></div>
               </div>
-              <label htmlFor="waitlist-wallet">EVM WALLET ADDRESS</label>
-              <input id="waitlist-wallet" name="wallet" value={wallet} onChange={(event) => setWallet(event.target.value)} placeholder="0x…" autoComplete="off" spellCheck={false} disabled={!requiredComplete} />
-              {state.incomingReferralCode && <p className="waitlist-referred">REFERRAL LOCKED · {state.incomingReferralCode}</p>}
-              <button type="submit" disabled={!requiredComplete || busy === "join" || !wallet.trim()}>
-                <span>{busy === "join" ? "SECURING POSITION…" : requiredComplete ? "JOIN THE WAITLIST" : "COMPLETE BOTH TASKS"}</span><b>→</b>
+              {!state.postProof ? <div className="waitlist-required-post">
+                <span>03 · REQUIRED PUBLIC X POST</span>
+                {joinPostComposerUrl
+                  ? <a href={joinPostComposerUrl} target="_blank" rel="noreferrer">CREATE POST WITH REFERRAL LINK ↗</a>
+                  : <small>Complete the two tasks above to unlock your post.</small>}
+                <label htmlFor="waitlist-join-post">PASTE YOUR X POST LINK</label>
+                <input id="waitlist-join-post" value={bonusPostUrl} onChange={(event) => setBonusPostUrl(event.target.value)} placeholder="https://x.com/username/status/…" spellCheck={false} disabled={!requiredComplete} />
+                <small>Each public X account and each post can be used for only one waitlist entry.</small>
+              </div> : <div className="waitlist-post-verified">
+                <span>PUBLIC X POST VERIFIED ✓</span><strong>@{state.postProof.xUsername}</strong><a href={state.postProof.postUrl} target="_blank" rel="noreferrer">VIEW POST ↗</a>
+              </div>}
+              {state.postProof && <>
+                <label htmlFor="waitlist-wallet">EVM WALLET ADDRESS</label>
+                <input id="waitlist-wallet" name="wallet" value={wallet} onChange={(event) => setWallet(event.target.value)} placeholder="0x…" autoComplete="off" spellCheck={false} />
+                {state.incomingReferralCode && <p className="waitlist-referred">REFERRAL LOCKED · {state.incomingReferralCode}</p>}
+              </>}
+              <button type="submit" disabled={state.postProof
+                ? !joinReady || busy === "join" || !wallet.trim()
+                : !requiredComplete || busy === "join-post" || !bonusPostUrl.trim()}>
+                <span>{state.postProof
+                  ? busy === "join" ? "SECURING POSITION…" : "JOIN THE WAITLIST"
+                  : busy === "join-post" ? "VERIFYING X POST…" : requiredComplete ? "VERIFY X POST" : "COMPLETE BOTH TASKS"}</span><b>→</b>
               </button>
-              <small>Wallet submission does not request a signature or transaction. It is used only as your unique waitlist identity.</small>
+              <small>{state.postProof
+                ? "Wallet submission does not request a signature or transaction. It is used only as your unique waitlist identity."
+                : "Your wallet field unlocks after the public X post is verified."}</small>
             </form>
           ) : (
             <div className="waitlist-ticket">
@@ -339,20 +396,16 @@ export function WaitlistApp() {
         </div>
       </section>
 
-      {state.entry && (
+      {state.entry && !state.entry.bonusPoints && (
         <section className="waitlist-bonus">
           <div className="waitlist-bonus-copy"><p className="waitlist-kicker">OPTIONAL · +1 POINT</p><h2>POST FOR<br /><em>THE HOOD.</em></h2><p>Create a real BunnyHood post, then paste its X link. One unique post can award one wallet once.</p></div>
-          {state.entry.bonusPoints ? (
-            <div className="waitlist-bonus-complete"><span>POINT ADDED</span><strong>+1</strong><p>Your post bonus is locked in. Keep climbing with referrals.</p>{state.entry.bonusPostUrl && <a href={state.entry.bonusPostUrl} target="_blank" rel="noreferrer">VIEW SUBMITTED POST ↗</a>}</div>
-          ) : (
-            <form className="waitlist-bonus-form" onSubmit={submitBonus}>
-              <a href={bonusComposerUrl} target="_blank" rel="noreferrer">CREATE A BUNNYHOOD POST ↗</a>
-              <label htmlFor="bonus-post">PASTE YOUR X POST LINK</label>
-              <input id="bonus-post" value={bonusPostUrl} onChange={(event) => setBonusPostUrl(event.target.value)} placeholder="https://x.com/username/status/…" spellCheck={false} />
-              <button type="submit" disabled={busy === "bonus" || !bonusPostUrl.trim()}>{busy === "bonus" ? "CHECKING LINK…" : "SUBMIT FOR +1 POINT"}</button>
-              <small>The URL must be a unique x.com status link that has not been submitted before.</small>
-            </form>
-          )}
+          <form className="waitlist-bonus-form" onSubmit={submitBonus}>
+            <a href={bonusComposerUrl} target="_blank" rel="noreferrer">CREATE A BUNNYHOOD POST ↗</a>
+            <label htmlFor="bonus-post">PASTE YOUR X POST LINK</label>
+            <input id="bonus-post" value={bonusPostUrl} onChange={(event) => setBonusPostUrl(event.target.value)} placeholder="https://x.com/username/status/…" spellCheck={false} />
+            <button type="submit" disabled={busy === "bonus" || !bonusPostUrl.trim()}>{busy === "bonus" ? "CHECKING LINK…" : "SUBMIT FOR +1 POINT"}</button>
+            <small>The URL must be a unique x.com status link that has not been submitted before.</small>
+          </form>
         </section>
       )}
 

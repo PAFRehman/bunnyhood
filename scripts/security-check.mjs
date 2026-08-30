@@ -33,6 +33,7 @@ const migration = [
   "009_rabbit_hole_sbt.sql",
   "010_rabbit_hole_ipfs_art.sql",
   "011_upcoming_products_waitlist.sql",
+  "012_waitlist_required_x_post.sql",
 ].map((name) => readFileSync(join(root, "db/migrations", name), "utf8")).join("\n");
 const wheel = readFileSync(join(root, "lib/spin/wheel.ts"), "utf8");
 const campaigns = readFileSync(join(root, "lib/spin/campaigns.ts"), "utf8");
@@ -72,7 +73,9 @@ const waitlistApp = readFileSync(join(root, "app/waitlist/waitlist-app.tsx"), "u
 const waitlistAdminPage = readFileSync(join(root, "app/admin/waitlist/page.tsx"), "utf8");
 const waitlistAdminRoute = readFileSync(join(root, "app/api/admin/waitlist/route.ts"), "utf8");
 const waitlistJoinRoute = readFileSync(join(root, "app/api/waitlist/join/route.ts"), "utf8");
+const waitlistJoinPostRoute = readFileSync(join(root, "app/api/waitlist/join-post/route.ts"), "utf8");
 const waitlistBonusRoute = readFileSync(join(root, "app/api/waitlist/bonus-post/route.ts"), "utf8");
+const waitlistXPost = readFileSync(join(root, "lib/waitlist/x-post.ts"), "utf8");
 const storageGatedRoutes = [
   "app/api/spin/auth/x/start/route.ts",
   "app/api/spin/auth/x/callback/route.ts",
@@ -88,6 +91,7 @@ const storageGatedRoutes = [
   "app/api/waitlist/state/route.ts",
   "app/api/waitlist/tasks/start/route.ts",
   "app/api/waitlist/tasks/complete/route.ts",
+  "app/api/waitlist/join-post/route.ts",
   "app/api/waitlist/join/route.ts",
   "app/api/waitlist/bonus-post/route.ts",
 ].map((name) => ({ name, source: readFileSync(join(root, name), "utf8") }));
@@ -194,6 +198,10 @@ if (!/image_cid/.test(migration) || !/metadata_cid/.test(migration) || !/rabbit_
 if (!/create table if not exists waitlist_entries/.test(migration) || !/waitlist_wallet_lower_unique/.test(migration) || !/session_id uuid not null unique/.test(migration)) failures.push("Waitlist one-session and one-wallet uniqueness is missing.");
 if (!/create table if not exists waitlist_referrals/.test(migration) || !/referred_entry_id uuid not null unique/.test(migration) || !/points_awarded integer not null default 1/.test(migration)) failures.push("Waitlist referral point accounting is missing.");
 if (!/create table if not exists waitlist_bonus_posts/.test(migration) || !/entry_id uuid not null unique/.test(migration) || !/post_id text not null unique/.test(migration) || !/bonus_points between 0 and 1/.test(migration)) failures.push("One-time unique waitlist post bonuses are missing.");
+if (!/create table if not exists waitlist_join_posts/.test(migration) || !/waitlist_join_posts_username_lower_unique/.test(migration) || !/reserved_referral_code/.test(migration)) failures.push("The required pre-wallet X post or reserved referral code schema is missing.");
+if (!/publish\.x\.com\/oembed/.test(waitlistXPost) || !/author_url/.test(waitlistXPost) || !/WAITLIST_X_POST_CONTENT_MISMATCH/.test(waitlistXPost) || !/verifyWaitlistPost/.test(waitlistData)) failures.push("Waitlist X post existence, canonical author, or session-code verification is missing.");
+if (!/WAITLIST_POST_REQUIRED/.test(waitlistData) || !/waitlist_join_posts/.test(waitlistData) || !/CREATE POST WITH REFERRAL LINK/.test(waitlistApp) || !/state\.postProof/.test(waitlistApp)) failures.push("A verified unique X post is not enforced before wallet submission.");
+if (!/anonymousRequestKey/.test(waitlistJoinPostRoute) || !/WAITLIST_X_ACCOUNT_USED/.test(waitlistData)) failures.push("The X post gate lacks IP throttling or one-account uniqueness enforcement.");
 if (!/WAITLIST_TASK_WAIT_MS = 5_000/.test(source) || !/Number\(row\.elapsed_ms\) < WAITLIST_TASK_WAIT_MS/.test(waitlistData) || !/started_at <= now\(\) - interval '5 seconds'/.test(waitlistData)) failures.push("Waitlist task completion is missing the server-side timer or automatic settlement.");
 if (!/1 \/ 1 POINT/.test(waitlistApp) || !/2 \+ entries\.referral_count \+ entries\.bonus_points/.test(waitlistData)) failures.push("Waitlist required-task points are missing from the UI or leaderboard score.");
 if (!/@BunnysHood[\s\S]{0,180}referralLink/.test(waitlistApp)) failures.push("The optional BunnyHood post does not include the account tag and referral link.");

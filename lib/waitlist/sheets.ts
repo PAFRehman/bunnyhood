@@ -18,6 +18,7 @@ type SnapshotRow = {
   follow_completed_at: Date | string | null;
   engage_completed_at: Date | string | null;
   bonus_post_url: string | null;
+  x_username: string | null;
   bonus_submitted_at: Date | string | null;
 };
 
@@ -40,6 +41,7 @@ export async function queueWaitlistEntrySnapshot(sql: SpinDb, entryId: string) {
       max(tasks.completed_at) filter (where tasks.task_type = 'follow_notifications') as follow_completed_at,
       max(tasks.completed_at) filter (where tasks.task_type = 'engage_post') as engage_completed_at,
       bonus.post_url as bonus_post_url,
+      nullif(split_part(bonus.post_url, '/', 4), '') as x_username,
       bonus.submitted_at as bonus_submitted_at
     from waitlist_entries entries
     left join waitlist_entries referrer on referrer.id = entries.referred_by_entry_id
@@ -63,6 +65,7 @@ export async function queueWaitlistEntrySnapshot(sql: SpinDb, entryId: string) {
     followNotificationsCompletedAt: iso(row.follow_completed_at),
     engagePostCompletedAt: iso(row.engage_completed_at),
     bonusPostUrl: row.bonus_post_url,
+    xUsername: row.x_username,
     bonusSubmittedAt: iso(row.bonus_submitted_at),
   };
   await sql`
