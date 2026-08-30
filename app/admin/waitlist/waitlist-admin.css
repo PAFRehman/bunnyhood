@@ -1,0 +1,39 @@
+.waitlist-admin-page { --lime:#caff00; --ink:#080a07; min-height:100vh; background:#080a07; color:#f0eee5; }
+.waitlist-admin-nav { display:flex; align-items:center; justify-content:space-between; gap:25px; border-bottom:1px solid rgba(255,255,255,.1); padding:24px clamp(20px,5vw,75px); }
+.waitlist-admin-nav>a { color:var(--lime); font-size:13px; font-weight:950; letter-spacing:.13em; }
+.waitlist-admin-nav nav { display:flex; flex-wrap:wrap; gap:24px; }
+.waitlist-admin-nav nav a { color:#8a9184; font-size:8px; font-weight:900; letter-spacing:.13em; }
+.waitlist-admin-hero { display:grid; grid-template-columns:1fr .7fr; align-items:end; gap:70px; padding:95px clamp(20px,5vw,75px) 75px; }
+.waitlist-admin-hero>div>p { margin:0 0 18px; color:var(--lime); font-size:8px; font-weight:950; letter-spacing:.2em; }
+.waitlist-admin-hero h1 { margin:0; font-size:clamp(65px,9vw,130px); letter-spacing:-.08em; line-height:.76; }
+.waitlist-admin-hero h1 em { color:var(--lime); font-weight:400; }
+.waitlist-admin-hero>p { max-width:590px; margin:0; color:#929a8d; font-size:13px; line-height:1.7; }
+.waitlist-admin-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; padding:0 clamp(20px,5vw,75px); }
+.waitlist-admin-stats article { display:grid; gap:8px; border:1px solid rgba(255,255,255,.12); border-radius:14px; background:#11150f; padding:22px; }
+.waitlist-admin-stats article.attention { border-color:rgba(202,255,0,.45); }
+.waitlist-admin-stats span { color:#747c70; font-size:7px; font-weight:950; letter-spacing:.16em; }
+.waitlist-admin-stats strong { color:var(--lime); font-size:34px; letter-spacing:-.05em; }
+.waitlist-admin-stats small { color:#8b9386; font-size:8px; }
+.waitlist-admin-records { padding:45px clamp(20px,5vw,75px) 100px; }
+.waitlist-admin-tools { display:flex; flex-wrap:wrap; gap:9px; margin-bottom:18px; }
+.waitlist-admin-tools form { display:flex; min-width:min(570px,100%); flex:1; }
+.waitlist-admin-tools input { width:100%; min-width:0; border:1px solid rgba(255,255,255,.15); border-radius:999px 0 0 999px; outline:0; background:#11150f; padding:14px 18px; color:#f0eee5; font-size:11px; }
+.waitlist-admin-tools button { border:1px solid rgba(202,255,0,.3); border-radius:999px; background:transparent; padding:0 18px; color:var(--lime); cursor:pointer; font-size:7px; font-weight:950; letter-spacing:.11em; }
+.waitlist-admin-tools form button { border-radius:0 999px 999px 0; background:var(--lime); color:var(--ink); }
+.waitlist-admin-tools button:disabled { cursor:wait; opacity:.5; }
+.waitlist-admin-table-wrap { max-height:650px; overflow:auto; border:1px solid rgba(255,255,255,.13); border-radius:15px; }
+.waitlist-admin-table-wrap table { width:100%; min-width:1450px; border-collapse:collapse; font-size:10px; }
+.waitlist-admin-table-wrap th { position:sticky; z-index:2; top:0; background:#181d15; color:#737b6f; font-size:7px; letter-spacing:.13em; text-align:left; text-transform:uppercase; }
+.waitlist-admin-table-wrap th,.waitlist-admin-table-wrap td { border-bottom:1px solid rgba(255,255,255,.08); padding:13px; }
+.waitlist-admin-table-wrap td strong,.waitlist-admin-table-wrap td b { color:var(--lime); }
+.waitlist-admin-table-wrap code { color:#c1c7bc; font-size:9px; }
+.waitlist-admin-table-wrap td:nth-child(8) { display:grid; gap:5px; }
+.waitlist-admin-table-wrap .ok,.waitlist-admin-table-wrap .missing { width:max-content; border-radius:999px; padding:5px 7px; font-size:6px; font-weight:950; letter-spacing:.08em; }
+.waitlist-admin-table-wrap .ok { background:rgba(202,255,0,.12); color:var(--lime); }
+.waitlist-admin-table-wrap .missing { background:rgba(255,100,90,.1); color:#ff8f85; }
+.waitlist-admin-table-wrap a { color:var(--lime); font-size:7px; font-weight:950; }
+.waitlist-admin-loading,.waitlist-admin-empty { padding:70px; color:#7a8275; font-size:9px; font-weight:950; letter-spacing:.17em; text-align:center; }
+.waitlist-admin-toast { position:fixed; right:20px; bottom:20px; display:flex; max-width:470px; align-items:center; gap:20px; border:1px solid rgba(202,255,0,.35); border-radius:13px; background:#151b11; padding:17px; color:#aab1a4; font-size:10px; }
+.waitlist-admin-toast button { border:0; background:transparent; color:#7c8576; cursor:pointer; font-size:20px; }
+@media (max-width:900px) { .waitlist-admin-hero { grid-template-columns:1fr; } .waitlist-admin-stats { grid-template-columns:1fr 1fr; } }
+@media (max-width:600px) { .waitlist-admin-nav { align-items:flex-start; flex-direction:column; } .waitlist-admin-hero h1 { font-size:63px; } .waitlist-admin-stats { grid-template-columns:1fr; } .waitlist-admin-tools { align-items:stretch; flex-direction:column; } .waitlist-admin-tools>button { min-height:45px; } }

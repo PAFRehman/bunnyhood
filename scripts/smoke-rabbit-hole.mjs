@@ -70,6 +70,22 @@ try {
   const typoAlias = await fetch(`http://127.0.0.1:${port}/RabitHole`, { redirect: "manual" });
   assert(typoAlias.status === 308, `Rabbit Hole typo alias returned ${typoAlias.status}.`);
   assert(typoAlias.headers.get("location") === "/RabbitHole", "Rabbit Hole typo alias has the wrong target.");
+
+  const waitlist = await fetch(`http://127.0.0.1:${port}/waitlist`, { redirect: "manual" });
+  const waitlistHtml = await waitlist.text();
+  assert(waitlist.status === 200, `Public waitlist returned ${waitlist.status}.`);
+  assert(waitlistHtml.includes("GET") && waitlistHtml.includes("IN LINE"), "Waitlist hero copy is missing.");
+  assert(waitlistHtml.includes("Follow + turn notifications on."), "Waitlist follow task is missing.");
+  assert(waitlistHtml.includes("Like, repost + comment."), "Waitlist engagement task is missing.");
+  assert(waitlistHtml.includes("NO X LOGIN"), "Waitlist no-X-login disclosure is missing.");
+  assert(!waitlistHtml.includes("ELIGIBILITY ADMIN"), "A private admin link leaked onto the public waitlist.");
+
+  const waitlistAdmin = await fetch(`http://127.0.0.1:${port}/admin/waitlist`, { redirect: "manual" });
+  assert(waitlistAdmin.status === 307, `Waitlist admin gate returned ${waitlistAdmin.status}.`);
+  assert(
+    waitlistAdmin.headers.get("location") === "/admin/spin?next=/admin/waitlist",
+    "Waitlist ledger did not redirect through the admin gate.",
+  );
 } finally {
   await stopServer(server);
 }
