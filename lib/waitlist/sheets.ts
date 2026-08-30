@@ -35,7 +35,7 @@ export async function queueWaitlistEntrySnapshot(sql: SpinDb, entryId: string) {
       referrer.referral_code as referred_by_code,
       entries.referral_count,
       entries.bonus_points,
-      (entries.referral_count + entries.bonus_points)::integer as score,
+      (2 + entries.referral_count + entries.bonus_points)::integer as score,
       entries.joined_at,
       max(tasks.completed_at) filter (where tasks.task_type = 'follow_notifications') as follow_completed_at,
       max(tasks.completed_at) filter (where tasks.task_type = 'engage_post') as engage_completed_at,
