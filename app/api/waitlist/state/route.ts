@@ -18,18 +18,16 @@ export async function GET(request: Request) {
     const context = await getOrCreateWaitlistSession(request, url.searchParams.get("ref") ?? "");
     const state = await getWaitlistState(context.session.id);
     const postUrl = getWaitlistXPostUrl();
-    const composer = new URL("https://x.com/intent/post");
-    composer.searchParams.set("text", "I joined the BunnyHood upcoming-products waitlist. The Hood is building. 🐰");
     const headers = new Headers();
     for (const cookie of context.setCookies) headers.append("set-cookie", cookie);
     return json({
       ...state,
       csrfToken: context.session.csrfToken,
       incomingReferralCode: context.session.incomingReferralCode,
+      serverNow: new Date().toISOString(),
       actions: {
         profileUrl: getWaitlistXProfileUrl(),
         postUrl,
-        bonusComposerUrl: composer.toString(),
       },
     }, 200, headers);
   } catch (error) {

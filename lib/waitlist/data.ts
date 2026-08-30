@@ -52,7 +52,7 @@ async function rankedEntryBySession(sessionId: string) {
   const rows = await sql<RankedEntryRow[]>`
     with ranked as (
       select entries.*,
-        (entries.referral_count + entries.bonus_points)::integer as score,
+        (2 + entries.referral_count + entries.bonus_points)::integer as score,
         row_number() over (
           order by (entries.referral_count + entries.bonus_points) desc,
             entries.joined_at asc, entries.join_number asc
@@ -73,7 +73,7 @@ async function rankedEntryById(entryId: string) {
   const rows = await sql<RankedEntryRow[]>`
     with ranked as (
       select entries.*,
-        (entries.referral_count + entries.bonus_points)::integer as score,
+        (2 + entries.referral_count + entries.bonus_points)::integer as score,
         row_number() over (
           order by (entries.referral_count + entries.bonus_points) desc,
             entries.joined_at asc, entries.join_number asc
@@ -92,6 +92,13 @@ async function rankedEntryById(entryId: string) {
 export async function getWaitlistState(sessionId: string) {
   await ensureWaitlistSchema();
   const sql = getDb();
+  await sql`
+    update waitlist_task_progress
+    set completed_at = now()
+    where session_id = ${sessionId}::uuid
+      and completed_at is null
+      and started_at <= now() - interval '5 seconds'
+  `;
   const [taskRows, entry, totalRows, leaderboardRows] = await Promise.all([
     sql<{ task_type: WaitlistTaskType; started_at: Date | string; completed_at: Date | string | null }[]>`
       select task_type, started_at, completed_at
@@ -102,7 +109,7 @@ export async function getWaitlistState(sessionId: string) {
     sql<RankedEntryRow[]>`
       with ranked as (
         select entries.*,
-          (entries.referral_count + entries.bonus_points)::integer as score,
+          (2 + entries.referral_count + entries.bonus_points)::integer as score,
           row_number() over (
             order by (entries.referral_count + entries.bonus_points) desc,
               entries.joined_at asc, entries.join_number asc
@@ -110,7 +117,7 @@ export async function getWaitlistState(sessionId: string) {
         from waitlist_entries entries
       )
       select ranked.*, null::text as bonus_post_url
-      from ranked order by rank limit 10
+      from ranked order by rank limit 50
     `,
   ]);
   const progress = new Map(taskRows.map((row) => [row.task_type, row]));
@@ -325,7 +332,7 @@ export async function searchWaitlistRank(rawQuery: string) {
   const rows = walletQuery ? await sql<RankedEntryRow[]>`
     with ranked as (
       select entries.*,
-        (entries.referral_count + entries.bonus_points)::integer as score,
+        (2 + entries.referral_count + entries.bonus_points)::integer as score,
         row_number() over (
           order by (entries.referral_count + entries.bonus_points) desc,
             entries.joined_at asc, entries.join_number asc
@@ -337,7 +344,7 @@ export async function searchWaitlistRank(rawQuery: string) {
   ` : await sql<RankedEntryRow[]>`
     with ranked as (
       select entries.*,
-        (entries.referral_count + entries.bonus_points)::integer as score,
+        (2 + entries.referral_count + entries.bonus_points)::integer as score,
         row_number() over (
           order by (entries.referral_count + entries.bonus_points) desc,
             entries.joined_at asc, entries.join_number asc
@@ -386,7 +393,7 @@ export async function getWaitlistAdminData(search = "") {
     }[]>`
       with ranked as (
         select entries.*,
-          (entries.referral_count + entries.bonus_points)::integer as score,
+          (2 + entries.referral_count + entries.bonus_points)::integer as score,
           row_number() over (
             order by (entries.referral_count + entries.bonus_points) desc,
               entries.joined_at asc, entries.join_number asc

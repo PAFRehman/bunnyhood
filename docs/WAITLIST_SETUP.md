@@ -3,7 +3,7 @@
 The public waitlist lives at `/waitlist`. It does not connect X and does not ask for a wallet signature or transaction. A browser completes two self-confirmed launch tasks, submits one unique EVM wallet, receives an immutable join number, and gets a referral link. Live rank is ordered by points, then earliest join time:
 
 ```text
-points = successful referrals + one-time post bonus
+points = two required tasks + successful referrals + one-time post bonus
 ```
 
 Each new wallet that joins through a referral link adds one point to the referrer. A joined wallet can submit one unique `x.com/{user}/status/{id}` link for one extra point. The link is not matched to an X account because the waitlist intentionally has no X authentication.
@@ -125,8 +125,8 @@ After a join or bonus submission, Next.js sends the response first and then atte
 ## User flow
 
 1. Open `/waitlist`, optionally with `?ref=bh…`. The first valid referral code seen by that browser is retained until it joins.
-2. Open **Follow + turn notifications on**, perform the action on X, return after five seconds, and confirm.
-3. Open the official post, like/repost/comment, return after five seconds, and confirm.
+2. Open **Follow + turn notifications on** and perform the action on X.
+3. Open the official post and like/repost/comment.
 4. Enter a valid EVM wallet. The server accepts one entry per wallet and one entry per browser waitlist session.
 5. Receive the permanent join number, live rank, points, and referral link.
 6. Optionally create a BunnyHood post and submit its unique X status URL for one point.

@@ -19,10 +19,11 @@ type State = {
   csrfToken: string;
   incomingReferralCode: string | null;
   totalEntries: number;
+  serverNow: string;
   tasks: { followNotifications: TaskProgress; engagePost: TaskProgress };
   entry: Entry | null;
   leaderboard: Entry[];
-  actions: { profileUrl: string; postUrl: string | null; bonusComposerUrl: string };
+  actions: { profileUrl: string; postUrl: string | null };
 };
 
 async function api<T>(url: string, init?: RequestInit) {
@@ -58,7 +59,6 @@ export function WaitlistApp() {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [now, setNow] = useState(0);
 
   const loadState = useCallback(async () => {
     const ref = new URLSearchParams(window.location.search).get("ref") ?? "";
@@ -76,11 +76,6 @@ export function WaitlistApp() {
   }, [loadState]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 250);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
     if (!message && !error) return;
     const timer = window.setTimeout(() => { setMessage(""); setError(""); }, 7_000);
     return () => window.clearTimeout(timer);
@@ -90,6 +85,41 @@ export function WaitlistApp() {
     if (!state?.entry || typeof window === "undefined") return "";
     return `${window.location.origin}/waitlist?ref=${state.entry.referralCode}`;
   }, [state?.entry]);
+
+  const bonusComposerUrl = useMemo(() => {
+    if (!referralLink) return "";
+    return xShareUrl(
+      "I joined the @BunnysHood upcoming-products waitlist. Join through my referral link and climb the Hood with me. 🐰",
+      referralLink,
+    );
+  }, [referralLink]);
+
+  const followPendingStartedAt = state?.tasks.followNotifications.startedAt
+    && !state.tasks.followNotifications.completedAt
+    ? state.tasks.followNotifications.startedAt
+    : null;
+  const engagePendingStartedAt = state?.tasks.engagePost.startedAt
+    && !state.tasks.engagePost.completedAt
+    ? state.tasks.engagePost.startedAt
+    : null;
+  const stateServerNow = state?.serverNow ?? null;
+
+  useEffect(() => {
+    if (!stateServerNow) return;
+    const pendingStarts = [followPendingStartedAt, engagePendingStartedAt]
+      .filter((value): value is string => Boolean(value));
+    if (!pendingStarts.length) return;
+    const serverNowMs = new Date(stateServerNow).getTime();
+    const nextDelay = Math.min(...pendingStarts.map((startedAt) => (
+      Math.max(250, 5_150 - Math.max(0, serverNowMs - new Date(startedAt).getTime()))
+    )));
+    const timer = window.setTimeout(() => {
+      void loadState().catch((reason) => {
+        setError(reason instanceof Error ? reason.message : "Task status could not be refreshed.");
+      });
+    }, nextDelay);
+    return () => window.clearTimeout(timer);
+  }, [engagePendingStartedAt, followPendingStartedAt, loadState, stateServerNow]);
 
   const requiredComplete = Boolean(
     state?.tasks.followNotifications.completedAt && state.tasks.engagePost.completedAt,
@@ -107,12 +137,6 @@ export function WaitlistApp() {
     });
   }
 
-  function remainingSeconds(progress: TaskProgress) {
-    if (!progress.startedAt || progress.completedAt) return 0;
-    if (!now) return 5;
-    return Math.max(0, Math.ceil((new Date(progress.startedAt).getTime() + 5_000 - now) / 1_000));
-  }
-
   async function handleTask(
     task: "follow_notifications" | "engage_post",
     progress: TaskProgress,
@@ -125,16 +149,11 @@ export function WaitlistApp() {
     setError("");
     setBusy(task);
     try {
-      if (!progress.startedAt) {
-        window.open(targetUrl, "_blank", "noopener,noreferrer");
-        await post("/api/waitlist/tasks/start", { task });
-        await loadState();
-        setMessage("Task opened. Complete it on X, then return here to confirm.");
-      } else if (!progress.completedAt) {
-        await post("/api/waitlist/tasks/complete", { task });
-        await loadState();
-        setMessage("Required task confirmed.");
-      }
+      if (progress.startedAt) return;
+      window.open(targetUrl, "_blank", "noopener,noreferrer");
+      await post("/api/waitlist/tasks/start", { task });
+      await loadState();
+      setMessage("Task opened. Complete the action on X.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Task could not be updated.");
     } finally {
@@ -253,22 +272,24 @@ export function WaitlistApp() {
       <section className="waitlist-flow" id="join">
         <header className="waitlist-heading">
           <div><p className="waitlist-kicker">TWO REQUIRED MOVES</p><h2>Earn your<br /><em>position.</em></h2></div>
-          <p>These actions are confirmed by you after a short server timer. BunnyHood does not ask you to connect an X account.</p>
+          <p>Complete both actions to unlock wallet entry. Each completed task adds 1 point to your leaderboard score.</p>
         </header>
 
         <div className="waitlist-task-list">
           {tasks.map((task) => {
-            const seconds = remainingSeconds(task.progress);
             const complete = Boolean(task.progress.completedAt);
             const started = Boolean(task.progress.startedAt);
-            const disabled = busy === task.type || (!task.url && task.type === "engage_post") || (started && !complete && seconds > 0);
+            const disabled = busy === task.type || (!task.url && task.type === "engage_post") || started;
             return (
               <article className={`waitlist-task${complete ? " complete" : ""}`} key={task.type}>
                 <span className="waitlist-task-number">{task.number}</span>
                 <div><small>{task.eyebrow}</small><h3>{task.title}</h3><p>{task.detail}</p></div>
-                <button type="button" disabled={disabled || complete} onClick={() => void handleTask(task.type, task.progress, task.url)}>
-                  {complete ? "CONFIRMED ✓" : !task.url ? "POST NOT CONFIGURED" : !started ? "OPEN TASK ↗" : seconds ? `RETURN IN ${seconds}s` : "CONFIRM COMPLETE"}
-                </button>
+                <div className="waitlist-task-action">
+                  <span>{complete ? "1 / 1 POINT" : "0 / 1 POINT"}</span>
+                  <button type="button" disabled={disabled} onClick={() => void handleTask(task.type, task.progress, task.url)}>
+                    {complete ? "CONFIRMED ✓" : !task.url ? "POST NOT CONFIGURED" : started ? "TASK OPENED…" : "OPEN TASK ↗"}
+                  </button>
+                </div>
               </article>
             );
           })}
@@ -278,7 +299,7 @@ export function WaitlistApp() {
           <div className="waitlist-entry-copy">
             <p className="waitlist-kicker">ONE WALLET · ONE PLACE</p>
             <h2>{state.entry ? "YOU’RE\nIN." : "CLAIM\nYOUR #."}</h2>
-            <p>Your join number never changes. Your live rank can improve through verified waitlist referrals and the one-time post bonus.</p>
+            <p>Your join number never changes. The two tasks start you at 2 points; referrals and the one-time post bonus move you higher.</p>
           </div>
 
           {!state.entry ? (
@@ -315,12 +336,12 @@ export function WaitlistApp() {
 
       {state.entry && (
         <section className="waitlist-bonus">
-          <div className="waitlist-bonus-copy"><p className="waitlist-kicker">OPTIONAL · +1 POINT</p><h2>POST FOR<br /><em>THE HOOD.</em></h2><p>Create a real BunnyHood post, then paste its X link. One unique post can award one wallet once; no X account connection or username match is required.</p></div>
+          <div className="waitlist-bonus-copy"><p className="waitlist-kicker">OPTIONAL · +1 POINT</p><h2>POST FOR<br /><em>THE HOOD.</em></h2><p>Create a real BunnyHood post, then paste its X link. One unique post can award one wallet once.</p></div>
           {state.entry.bonusPoints ? (
             <div className="waitlist-bonus-complete"><span>POINT ADDED</span><strong>+1</strong><p>Your post bonus is locked in. Keep climbing with referrals.</p>{state.entry.bonusPostUrl && <a href={state.entry.bonusPostUrl} target="_blank" rel="noreferrer">VIEW SUBMITTED POST ↗</a>}</div>
           ) : (
             <form className="waitlist-bonus-form" onSubmit={submitBonus}>
-              <a href={state.actions.bonusComposerUrl} target="_blank" rel="noreferrer">CREATE A BUNNYHOOD POST ↗</a>
+              <a href={bonusComposerUrl} target="_blank" rel="noreferrer">CREATE A BUNNYHOOD POST ↗</a>
               <label htmlFor="bonus-post">PASTE YOUR X POST LINK</label>
               <input id="bonus-post" value={bonusPostUrl} onChange={(event) => setBonusPostUrl(event.target.value)} placeholder="https://x.com/username/status/…" spellCheck={false} />
               <button type="submit" disabled={busy === "bonus" || !bonusPostUrl.trim()}>{busy === "bonus" ? "CHECKING LINK…" : "SUBMIT FOR +1 POINT"}</button>
@@ -341,9 +362,20 @@ export function WaitlistApp() {
 
         {rankResult !== undefined && (
           <div className={`waitlist-search-result${rankResult ? "" : " empty"}`}>
-            {rankResult ? <><span>{padJoinNumber(rankResult.joinNumber)}</span><strong>RANK #{format.format(rankResult.rank)}</strong><p>{rankResult.walletAddress} · {rankResult.points} points · {rankResult.referralCount} referrals</p></> : <p>No waitlist entry matches that wallet or referral code.</p>}
+            {rankResult ? <>
+              <span>{padJoinNumber(rankResult.joinNumber)}</span>
+              <strong>RANK #{format.format(rankResult.rank)}</strong>
+              <p>{rankResult.walletAddress} · {rankResult.points} points · {rankResult.referralCount} referrals</p>
+              <div className="waitlist-search-referral">
+                <small>YOUR REFERRAL CODE</small>
+                <code>{rankResult.referralCode}</code>
+                <button type="button" onClick={() => void copy(rankResult.referralCode, "Referral code")}>COPY CODE</button>
+              </div>
+            </> : <p>No waitlist entry matches that wallet or referral code.</p>}
           </div>
         )}
+
+        <div className="waitlist-gtd-banner"><strong>TOP 50</strong><span>ON THE LEADERBOARD WILL RECEIVE GTD.</span></div>
 
         <div className="waitlist-leaderboard">
           <div className="waitlist-board-head"><span>RANK</span><span>WALLET</span><span>JOIN #</span><span>REFERRALS</span><span>POINTS</span></div>
