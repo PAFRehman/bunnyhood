@@ -105,7 +105,7 @@
 .waitlist-search-result.empty p { justify-self:center; }
 .waitlist-search-referral { display:flex; grid-column:1/-1; align-items:center; gap:15px; border-top:1px solid rgba(8,10,7,.12); padding-top:19px; }
 .waitlist-search-referral small { color:#718d00; font-size:7px; font-weight:950; letter-spacing:.16em; }
-.waitlist-search-referral code { font-size:13px; font-weight:850; }
+.waitlist-search-referral code { min-width:0; overflow-wrap:anywhere; font-size:13px; font-weight:850; }
 .waitlist-search-referral button { margin-left:auto; border:1px solid rgba(8,10,7,.2); border-radius:999px; background:transparent; padding:9px 13px; color:#5e7900; cursor:pointer; font-size:7px; font-weight:950; letter-spacing:.1em; }
 .waitlist-gtd-banner { display:flex; max-width:1440px; align-items:center; justify-content:center; gap:13px; margin:55px auto -20px; border-radius:15px; background:var(--wl-ink); padding:18px 22px; color:var(--wl-paper); font-size:9px; font-weight:950; letter-spacing:.13em; text-align:center; }
 .waitlist-gtd-banner strong { color:var(--wl-lime); font-size:20px; letter-spacing:-.03em; }

@@ -50,6 +50,11 @@ function xShareUrl(text: string, url?: string) {
   return target.toString();
 }
 
+function waitlistReferralUrl(referralCode: string) {
+  const path = `/waitlist?ref=${referralCode}`;
+  return typeof window === "undefined" ? path : `${window.location.origin}${path}`;
+}
+
 export function WaitlistApp() {
   const [state, setState] = useState<State | null>(null);
   const [wallet, setWallet] = useState("");
@@ -367,9 +372,9 @@ export function WaitlistApp() {
               <strong>RANK #{format.format(rankResult.rank)}</strong>
               <p>{rankResult.walletAddress} · {rankResult.points} points · {rankResult.referralCount} referrals</p>
               <div className="waitlist-search-referral">
-                <small>YOUR REFERRAL CODE</small>
-                <code>{rankResult.referralCode}</code>
-                <button type="button" onClick={() => void copy(rankResult.referralCode, "Referral code")}>COPY CODE</button>
+                <small>YOUR REFERRAL LINK</small>
+                <code>{waitlistReferralUrl(rankResult.referralCode)}</code>
+                <button type="button" onClick={() => void copy(waitlistReferralUrl(rankResult.referralCode), "Referral link")}>COPY REFERRAL LINK</button>
               </div>
             </> : <p>No waitlist entry matches that wallet or referral code.</p>}
           </div>
