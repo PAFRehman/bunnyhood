@@ -8,7 +8,7 @@
     },
     {
       "path": "/api/cron/waitlist-sheets",
-      "schedule": "*/10 * * * *"
+      "schedule": "15 0 * * *"
     }
   ]
 }

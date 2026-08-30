@@ -71,6 +71,8 @@ const waitlistSheets = readFileSync(join(root, "lib/waitlist/sheets.ts"), "utf8"
 const waitlistApp = readFileSync(join(root, "app/waitlist/waitlist-app.tsx"), "utf8");
 const waitlistAdminPage = readFileSync(join(root, "app/admin/waitlist/page.tsx"), "utf8");
 const waitlistAdminRoute = readFileSync(join(root, "app/api/admin/waitlist/route.ts"), "utf8");
+const waitlistJoinRoute = readFileSync(join(root, "app/api/waitlist/join/route.ts"), "utf8");
+const waitlistBonusRoute = readFileSync(join(root, "app/api/waitlist/bonus-post/route.ts"), "utf8");
 const storageGatedRoutes = [
   "app/api/spin/auth/x/start/route.ts",
   "app/api/spin/auth/x/callback/route.ts",
@@ -196,6 +198,7 @@ if (!/WAITLIST_TASK_WAIT_MS = 5_000/.test(source) || !/Number\(row\.elapsed_ms\)
 if (!/WAITLIST_SESSION_COOKIE/.test(waitlistSession) || !/csrf_hash/.test(waitlistSession) || !/BAD_WAITLIST_CSRF/.test(waitlistSession) || !/token_hash/.test(waitlistSession)) failures.push("Anonymous waitlist sessions are not protected by hashed tokens and CSRF.");
 if (/requireSessionUser|getSessionUser|\/auth\/x/.test(`${waitlistData}\n${waitlistApp}`) || !/NO X LOGIN/.test(waitlistApp)) failures.push("The waitlist unexpectedly requires X authentication.");
 if (!/create table if not exists waitlist_sheet_outbox/.test(migration) || !/queueWaitlistEntrySnapshot/.test(`${waitlistData}\n${waitlistSheets}`) || !/revision = waitlist_sheet_outbox\.revision \+ 1/.test(waitlistSheets)) failures.push("Durable revisioned waitlist Google Sheets sync is missing.");
+if (!/from "next\/server"/.test(`${waitlistJoinRoute}\n${waitlistBonusRoute}`) || !/after\(async \(\) =>/.test(waitlistJoinRoute) || !/after\(async \(\) =>/.test(waitlistBonusRoute)) failures.push("Waitlist Sheets updates are not flushed after the user response.");
 if (!/requireSpinAdmin/.test(waitlistAdminRoute) || !/verifyAdminTicket/.test(waitlistAdminPage) || /admin\/waitlist/.test(waitlistApp)) failures.push("Waitlist admin data is not private or the public page exposes its route.");
 if (!/maskWallet/.test(waitlistData) || !/includePrivate \? row\.wallet_address : maskWallet/.test(waitlistData)) failures.push("Public waitlist rankings can expose complete wallets.");
 if (/debug:\s*stack|Internal Error:/.test(readFileSync(join(root, "lib/spin/http.ts"), "utf8"))) failures.push("Internal server stack details are exposed to clients.");

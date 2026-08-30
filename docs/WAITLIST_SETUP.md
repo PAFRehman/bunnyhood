@@ -120,7 +120,7 @@ function doPost(event) {
 }
 ```
 
-Vercel calls `/api/cron/waitlist-sheets` every ten minutes. Failed deliveries remain in `waitlist_sheet_outbox` and retry with bounded exponential backoff. A successful Neon signup never depends on Google being available. The private `/admin/waitlist` page can trigger the same sync manually and shows pending or retrying rows.
+After a join or bonus submission, Next.js sends the response first and then attempts a Google Sheets flush in the serverless background. Vercel also calls `/api/cron/waitlist-sheets` once daily as a durable retry; the daily cadence is compatible with Vercel Hobby cron limits. Failed deliveries remain in `waitlist_sheet_outbox` and retry with bounded exponential backoff. A successful Neon signup never depends on Google being available. The private `/admin/waitlist` page can trigger the same sync manually and shows pending or retrying rows.
 
 ## User flow
 
