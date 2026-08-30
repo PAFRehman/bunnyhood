@@ -5,6 +5,10 @@
     {
       "path": "/api/cron/spin-maintenance",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/waitlist-sheets",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

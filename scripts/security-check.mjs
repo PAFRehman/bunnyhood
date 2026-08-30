@@ -32,6 +32,7 @@ const migration = [
   "008_five_campaign_tasks.sql",
   "009_rabbit_hole_sbt.sql",
   "010_rabbit_hole_ipfs_art.sql",
+  "011_upcoming_products_waitlist.sql",
 ].map((name) => readFileSync(join(root, "db/migrations", name), "utf8")).join("\n");
 const wheel = readFileSync(join(root, "lib/spin/wheel.ts"), "utf8");
 const campaigns = readFileSync(join(root, "lib/spin/campaigns.ts"), "utf8");
@@ -64,6 +65,12 @@ const rabbitArt = readFileSync(join(root, "lib/rabbit-hole/art.ts"), "utf8");
 const rabbitExplorer = readFileSync(join(root, "lib/rabbit-hole/explorer.ts"), "utf8");
 const rabbitPinata = readFileSync(join(root, "lib/rabbit-hole/pinata.ts"), "utf8");
 const rabbitMasterArt = readFileSync(join(root, "public/assets/rabbit-hole-box-original.png"));
+const waitlistData = readFileSync(join(root, "lib/waitlist/data.ts"), "utf8");
+const waitlistSession = readFileSync(join(root, "lib/waitlist/session.ts"), "utf8");
+const waitlistSheets = readFileSync(join(root, "lib/waitlist/sheets.ts"), "utf8");
+const waitlistApp = readFileSync(join(root, "app/waitlist/waitlist-app.tsx"), "utf8");
+const waitlistAdminPage = readFileSync(join(root, "app/admin/waitlist/page.tsx"), "utf8");
+const waitlistAdminRoute = readFileSync(join(root, "app/api/admin/waitlist/route.ts"), "utf8");
 const storageGatedRoutes = [
   "app/api/spin/auth/x/start/route.ts",
   "app/api/spin/auth/x/callback/route.ts",
@@ -76,6 +83,11 @@ const storageGatedRoutes = [
   "app/api/admin/spin/campaign/route.ts",
   "app/api/rabbit-hole/auth/x/start/route.ts",
   "app/api/rabbit-hole/claim/route.ts",
+  "app/api/waitlist/state/route.ts",
+  "app/api/waitlist/tasks/start/route.ts",
+  "app/api/waitlist/tasks/complete/route.ts",
+  "app/api/waitlist/join/route.ts",
+  "app/api/waitlist/bonus-post/route.ts",
 ].map((name) => ({ name, source: readFileSync(join(root, name), "utf8") }));
 const failures = [];
 
@@ -177,6 +189,15 @@ if (!/image: publicIpfsGatewayUrl\(input\.imageCid\)/.test(rabbitPinata) || !/co
 if (!/using the public Pinata gateway/.test(rabbitPinata) || /throw new Error\("PINATA_GATEWAY_URL/.test(rabbitPinata)) failures.push("An optional malformed Pinata gateway can still break Rabbit Hole reads.");
 if (!/requireSpinAdmin/.test(rabbitRefetchRoute) || !/assertSameOrigin/.test(rabbitRefetchRoute) || !/requestExplorerMetadataRefresh/.test(`${rabbitRefetchRoute}\n${rabbitExplorer}`) || !/REFRESH EXPLORER/.test(rabbitAdminApp)) failures.push("Admin-only Blockscout metadata recovery is incomplete.");
 if (!/image_cid/.test(migration) || !/metadata_cid/.test(migration) || !/rabbit_hole_claimed_wallet_idx/.test(migration)) failures.push("Rabbit Hole IPFS identifiers or claimed-wallet ledger index are missing.");
+if (!/create table if not exists waitlist_entries/.test(migration) || !/waitlist_wallet_lower_unique/.test(migration) || !/session_id uuid not null unique/.test(migration)) failures.push("Waitlist one-session and one-wallet uniqueness is missing.");
+if (!/create table if not exists waitlist_referrals/.test(migration) || !/referred_entry_id uuid not null unique/.test(migration) || !/points_awarded integer not null default 1/.test(migration)) failures.push("Waitlist referral point accounting is missing.");
+if (!/create table if not exists waitlist_bonus_posts/.test(migration) || !/entry_id uuid not null unique/.test(migration) || !/post_id text not null unique/.test(migration) || !/bonus_points between 0 and 1/.test(migration)) failures.push("One-time unique waitlist post bonuses are missing.");
+if (!/WAITLIST_TASK_WAIT_MS = 5_000/.test(source) || !/Number\(row\.elapsed_ms\) < WAITLIST_TASK_WAIT_MS/.test(waitlistData)) failures.push("Waitlist task confirmations are missing the server-side timer.");
+if (!/WAITLIST_SESSION_COOKIE/.test(waitlistSession) || !/csrf_hash/.test(waitlistSession) || !/BAD_WAITLIST_CSRF/.test(waitlistSession) || !/token_hash/.test(waitlistSession)) failures.push("Anonymous waitlist sessions are not protected by hashed tokens and CSRF.");
+if (/requireSessionUser|getSessionUser|\/auth\/x/.test(`${waitlistData}\n${waitlistApp}`) || !/NO X LOGIN/.test(waitlistApp)) failures.push("The waitlist unexpectedly requires X authentication.");
+if (!/create table if not exists waitlist_sheet_outbox/.test(migration) || !/queueWaitlistEntrySnapshot/.test(`${waitlistData}\n${waitlistSheets}`) || !/revision = waitlist_sheet_outbox\.revision \+ 1/.test(waitlistSheets)) failures.push("Durable revisioned waitlist Google Sheets sync is missing.");
+if (!/requireSpinAdmin/.test(waitlistAdminRoute) || !/verifyAdminTicket/.test(waitlistAdminPage) || /admin\/waitlist/.test(waitlistApp)) failures.push("Waitlist admin data is not private or the public page exposes its route.");
+if (!/maskWallet/.test(waitlistData) || !/includePrivate \? row\.wallet_address : maskWallet/.test(waitlistData)) failures.push("Public waitlist rankings can expose complete wallets.");
 if (/debug:\s*stack|Internal Error:/.test(readFileSync(join(root, "lib/spin/http.ts"), "utf8"))) failures.push("Internal server stack details are exposed to clients.");
 
 if (failures.length) {

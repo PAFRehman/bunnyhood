@@ -12,6 +12,8 @@ Bunny Hood is a production Next.js application deployed on Vercel. Its Rabbit Ho
 | [`/admin/rabbit-hole`](https://www.bunnyhood.xyz/admin/rabbit-hole) | Dedicated add/replace eligibility controls and full claim-wallet ledger | Admin password required |
 | [`/admin/spin?next=/RabbitHole`](https://www.bunnyhood.xyz/admin/spin?next=/RabbitHole) | Admin sign-in and redirect to Rabbit Hole | Admin password required |
 | [`/SpinTheWheel`](https://www.bunnyhood.xyz/SpinTheWheel) | X-connected rewards and wheel experience | Public |
+| [`/waitlist`](https://www.bunnyhood.xyz/waitlist) | Upcoming-products tasks, wallet registration, join number, referral ranking, and rank search | Public; no X connection |
+| [`/admin/waitlist`](https://www.bunnyhood.xyz/admin/waitlist) | Full waitlist wallet/referral/task ledger and Google Sheets sync status | Admin password required |
 | `/auction/*` | Retired auction URLs | Permanently redirect to `/RabbitHole` |
 
 The Rabbit Hole page, eligibility search, and claim flow are public. Admin list management remains password-protected. Metadata and PNG image endpoints are public so users can download their art and blockchain clients can render it. New claims pin immutable IPFS CIDs and expose them through public HTTPS gateway URLs so OpenSea, Blockscout, and wallets can load the artwork reliably.
@@ -376,8 +378,14 @@ If a private RPC is absent, the code falls back to Robinhood Chain's public RPC.
 | `RATE_LIMIT_SECRET` | Produces private rate-limit keys |
 | `ADMIN_SESSION_SECRET` | Signs the existing admin session |
 | `ADMIN_PASSWORD_HASH` | Scrypt hash used by `/admin/spin` |
+| `WAITLIST_X_POST_URL` | Official X status URL for waitlist task 2; required before users can join |
+| `WAITLIST_X_PROFILE_URL` | Optional task 1 profile; defaults to `https://x.com/BunnysHood` |
+| `WAITLIST_GOOGLE_SHEETS_WEBHOOK_URL` | Optional server-only deployed Apps Script `/exec` URL for the waitlist mirror |
+| `WAITLIST_GOOGLE_SHEETS_SECRET` | Optional server-only 32+ character secret shared with Apps Script |
 
 The wider Spin The Wheel application also uses the remaining secrets documented in `.env.example` and [`SPIN_THE_WHEEL_SETUP.md`](SPIN_THE_WHEEL_SETUP.md).
+
+The waitlist does not use X OAuth. Neon remains authoritative and Google Sheets is an optional background mirror. Complete flow, Apps Script, security limits, and deployment steps are in [`docs/WAITLIST_SETUP.md`](docs/WAITLIST_SETUP.md).
 
 ## Deploy the contract
 
@@ -489,7 +497,7 @@ After the controlled test mint, confirm `locked(tokenId) == true`, `tokenOfClaim
 7. In Pinata, create a JWT that can pin files and JSON. Keep it server-only, test it in Preview, and never paste it into browser code, GitHub, screenshots, or public logs.
 8. Deploy/redeploy so the new environment values reach the runtime.
 
-The first Rabbit Hole database access after deployment applies migrations `009` and `010` automatically. The runtime needs permission to create the extension/tables/columns/indexes on the configured Neon database.
+The first Rabbit Hole database access after deployment applies migrations `009` and `010` automatically. The first waitlist access applies migration `011`. The runtime needs permission to create the extension/tables/columns/indexes on the configured Neon database.
 
 ### Application verification
 

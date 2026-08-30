@@ -250,7 +250,7 @@ export function SpinAdminApp() {
       await adminRequest("/api/admin/spin/login", { method: "POST", body: JSON.stringify({ password }) });
       setPassword("");
       const next = new URLSearchParams(window.location.search).get("next");
-      if (next === "/RabbitHole" || next === "/admin/rabbit-hole") {
+      if (next === "/RabbitHole" || next === "/admin/rabbit-hole" || next === "/admin/waitlist") {
         window.location.assign(next);
         return;
       }
