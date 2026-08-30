@@ -18,6 +18,7 @@ type Row = {
   followCompletedAt: string | null;
   engageCompletedAt: string | null;
   bonusPostUrl: string | null;
+  xUsername: string | null;
 };
 type AdminData = {
   stats: { entries: number; referrals: number; bonusPosts: number; pendingSync: number; failedSync: number };
@@ -114,19 +115,19 @@ export function WaitlistAdminApp() {
         <section className="waitlist-admin-stats">
           <article><span>ENTRIES</span><strong>{numberFormat.format(data.stats.entries)}</strong></article>
           <article><span>REFERRALS</span><strong>{numberFormat.format(data.stats.referrals)}</strong></article>
-          <article><span>BONUS POSTS</span><strong>{numberFormat.format(data.stats.bonusPosts)}</strong></article>
+          <article><span>VERIFIED X POSTS</span><strong>{numberFormat.format(data.stats.bonusPosts)}</strong></article>
           <article className={data.stats.pendingSync ? "attention" : ""}><span>SHEETS PENDING</span><strong>{numberFormat.format(data.stats.pendingSync)}</strong><small>{data.sheetsConfigured ? `${data.stats.failedSync} retrying` : "not configured"}</small></article>
         </section>
 
         <section className="waitlist-admin-records">
           <div className="waitlist-admin-tools">
-            <form onSubmit={submitSearch}><input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Search wallet, referral code, or post URL" /><button>SEARCH</button></form>
+            <form onSubmit={submitSearch}><input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Search wallet, X account, referral code, or post URL" /><button>SEARCH</button></form>
             <button type="button" onClick={() => void copyWallets()}>COPY SHOWN WALLETS</button>
             <button type="button" onClick={() => void syncSheets()} disabled={busy}>{busy ? "SYNCING…" : "SYNC GOOGLE SHEETS"}</button>
           </div>
           <div className="waitlist-admin-table-wrap">
             <table>
-              <thead><tr><th>Rank</th><th>Join #</th><th>Wallet</th><th>Points</th><th>Referrals</th><th>Referral code</th><th>Referred by</th><th>Tasks</th><th>Bonus post</th><th>Joined</th></tr></thead>
+              <thead><tr><th>Rank</th><th>Join #</th><th>Wallet</th><th>Points</th><th>Referrals</th><th>Referral code</th><th>Referred by</th><th>Tasks</th><th>X account</th><th>Post</th><th>Joined</th></tr></thead>
               <tbody>{data.rows.map((row) => <tr key={row.id}>
                 <td><strong>#{row.rank}</strong></td>
                 <td>#{String(row.joinNumber).padStart(4, "0")}</td>
@@ -136,6 +137,7 @@ export function WaitlistAdminApp() {
                 <td><code>{row.referralCode}</code></td>
                 <td>{row.referredByCode || "—"}</td>
                 <td><span className={row.followCompletedAt ? "ok" : "missing"}>FOLLOW + BELL</span><span className={row.engageCompletedAt ? "ok" : "missing"}>ENGAGEMENT</span></td>
+                <td>{row.xUsername ? `@${row.xUsername}` : "—"}</td>
                 <td>{row.bonusPostUrl ? <a href={row.bonusPostUrl} target="_blank" rel="noreferrer">VIEW ↗</a> : "—"}</td>
                 <td>{new Date(row.joinedAt).toLocaleString()}</td>
               </tr>)}</tbody>

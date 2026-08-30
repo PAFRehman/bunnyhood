@@ -3,7 +3,7 @@ import "server-only";
 import { getDb, inTransaction } from "@/lib/spin/db";
 import { HttpError } from "@/lib/spin/http";
 
-const MIGRATION_ID = "011_upcoming_products_waitlist";
+const MIGRATION_ID = "012_waitlist_required_x_post";
 
 const statements = [
   `create extension if not exists pgcrypto`,
@@ -24,9 +24,13 @@ const statements = [
     expires_at timestamptz not null,
     created_at timestamptz not null default now(),
     last_seen_at timestamptz not null default now(),
+    reserved_referral_code text,
     check (incoming_referral_code is null or incoming_referral_code ~ '^bh[a-z0-9]{12,22}$')
   )`,
+  `alter table waitlist_sessions add column if not exists reserved_referral_code text`,
   `create index if not exists waitlist_sessions_expiry_idx on waitlist_sessions(expires_at)`,
+  `create unique index if not exists waitlist_sessions_reserved_referral_unique
+    on waitlist_sessions(reserved_referral_code) where reserved_referral_code is not null`,
   `create table if not exists waitlist_task_progress (
     session_id uuid not null references waitlist_sessions(id) on delete cascade,
     task_type text not null check (task_type in ('follow_notifications', 'engage_post')),
@@ -70,6 +74,15 @@ const statements = [
     points_awarded integer not null default 1 check (points_awarded = 1),
     submitted_at timestamptz not null default now()
   )`,
+  `create table if not exists waitlist_join_posts (
+    session_id uuid primary key references waitlist_sessions(id) on delete cascade,
+    x_username text not null check (x_username ~ '^[a-z0-9_]{1,15}$'),
+    post_url text not null unique,
+    post_id text not null unique check (post_id ~ '^[0-9]{5,30}$'),
+    verified_at timestamptz not null default now()
+  )`,
+  `create unique index if not exists waitlist_join_posts_username_lower_unique
+    on waitlist_join_posts(lower(x_username))`,
   `create table if not exists waitlist_sheet_outbox (
     id bigserial primary key,
     event_type text not null default 'entry_snapshot' check (event_type = 'entry_snapshot'),
@@ -93,17 +106,36 @@ declare global {
 }
 
 async function schemaIsHealthy(sql: ReturnType<typeof getDb>) {
-  const rows = await sql<{ count: number }[]>`
-    select count(*)::integer as count
-    from information_schema.tables
-    where table_schema = current_schema()
-      and table_name in (
-        'spin_rate_limits',
-        'waitlist_sessions', 'waitlist_task_progress', 'waitlist_entries',
-        'waitlist_referrals', 'waitlist_bonus_posts', 'waitlist_sheet_outbox'
-      )
+  const rows = await sql<{
+    table_count: number;
+    has_reserved_referral: boolean;
+    has_username_unique: boolean;
+  }[]>`
+    select
+      (select count(*)::integer
+        from information_schema.tables
+        where table_schema = current_schema()
+          and table_name in (
+            'spin_rate_limits',
+            'waitlist_sessions', 'waitlist_task_progress', 'waitlist_entries',
+            'waitlist_referrals', 'waitlist_bonus_posts', 'waitlist_join_posts',
+            'waitlist_sheet_outbox'
+          )) as table_count,
+      exists(
+        select 1 from information_schema.columns
+        where table_schema = current_schema()
+          and table_name = 'waitlist_sessions'
+          and column_name = 'reserved_referral_code'
+      ) as has_reserved_referral,
+      exists(
+        select 1 from pg_indexes
+        where schemaname = current_schema()
+          and indexname = 'waitlist_join_posts_username_lower_unique'
+      ) as has_username_unique
   `;
-  return Number(rows[0]?.count ?? 0) === 7;
+  return Number(rows[0]?.table_count ?? 0) === 8
+    && rows[0]?.has_reserved_referral === true
+    && rows[0]?.has_username_unique === true;
 }
 
 async function migrate() {

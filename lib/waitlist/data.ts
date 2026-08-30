@@ -5,9 +5,10 @@ import { getAddress, isAddress } from "viem";
 import type { SpinDb } from "@/lib/spin/db";
 import { getDb, inTransaction } from "@/lib/spin/db";
 import { HttpError } from "@/lib/spin/http";
-import { getWaitlistXPostUrl, parseWaitlistPostUrl, WAITLIST_TASK_WAIT_MS } from "./config";
+import { getWaitlistXPostUrl, WAITLIST_TASK_WAIT_MS } from "./config";
 import { ensureWaitlistSchema } from "./schema";
 import { queueWaitlistEntrySnapshot } from "./sheets";
+import { verifyWaitlistPost } from "./x-post";
 
 export type WaitlistTaskType = "follow_notifications" | "engage_post";
 
@@ -99,7 +100,7 @@ export async function getWaitlistState(sessionId: string) {
       and completed_at is null
       and started_at <= now() - interval '5 seconds'
   `;
-  const [taskRows, entry, totalRows, leaderboardRows] = await Promise.all([
+  const [taskRows, entry, totalRows, leaderboardRows, joinPostRows] = await Promise.all([
     sql<{ task_type: WaitlistTaskType; started_at: Date | string; completed_at: Date | string | null }[]>`
       select task_type, started_at, completed_at
       from waitlist_task_progress where session_id = ${sessionId}::uuid
@@ -119,6 +120,10 @@ export async function getWaitlistState(sessionId: string) {
       select ranked.*, null::text as bonus_post_url
       from ranked order by rank limit 50
     `,
+    sql<{ x_username: string; post_url: string; verified_at: Date | string }[]>`
+      select x_username, post_url, verified_at
+      from waitlist_join_posts where session_id = ${sessionId}::uuid limit 1
+    `,
   ]);
   const progress = new Map(taskRows.map((row) => [row.task_type, row]));
   const task = (type: WaitlistTaskType) => {
@@ -128,11 +133,22 @@ export async function getWaitlistState(sessionId: string) {
       completedAt: row ? iso(row.completed_at) : null,
     };
   };
+  const requiredTasksComplete = Boolean(
+    task("follow_notifications").completedAt && task("engage_post").completedAt,
+  );
+  const postReferralCode = entry?.referralCode
+    ?? (requiredTasksComplete ? await ensureSessionReferralCode(sessionId) : null);
   return {
     tasks: {
       followNotifications: task("follow_notifications"),
       engagePost: task("engage_post"),
     },
+    postProof: joinPostRows[0] ? {
+      xUsername: joinPostRows[0].x_username,
+      postUrl: joinPostRows[0].post_url,
+      verifiedAt: iso(joinPostRows[0].verified_at) as string,
+    } : null,
+    postReferralCode,
     entry,
     totalEntries: Number(totalRows[0]?.count ?? 0),
     leaderboard: leaderboardRows.map((row) => mapEntry(row, false)),
@@ -200,11 +216,107 @@ async function createReferralCode(sql: SpinDb) {
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const candidate = `bh${randomBytes(8).toString("hex")}`;
     const existing = await sql<{ exists: boolean }[]>`
-      select exists(select 1 from waitlist_entries where referral_code = ${candidate}) as exists
+      select exists(
+        select 1 from waitlist_entries where referral_code = ${candidate}
+        union all
+        select 1 from waitlist_sessions where reserved_referral_code = ${candidate}
+      ) as exists
     `;
     if (!existing[0]?.exists) return candidate;
   }
   throw new HttpError(503, "A referral code could not be created. Try again.", "REFERRAL_CODE_FAILED");
+}
+
+async function ensureSessionReferralCode(sessionId: string) {
+  return inTransaction(async (sql) => {
+    await sql`select pg_advisory_xact_lock(hashtext(${`waitlist-session:${sessionId}`}))`;
+    const rows = await sql<{ reserved_referral_code: string | null }[]>`
+      select reserved_referral_code from waitlist_sessions
+      where id = ${sessionId}::uuid limit 1 for update
+    `;
+    if (!rows[0]) throw new HttpError(401, "Refresh the waitlist and try again.", "WAITLIST_SESSION_REQUIRED");
+    if (rows[0].reserved_referral_code) return rows[0].reserved_referral_code;
+    const referralCode = await createReferralCode(sql);
+    const updated = await sql<{ reserved_referral_code: string }[]>`
+      update waitlist_sessions set reserved_referral_code = ${referralCode}
+      where id = ${sessionId}::uuid returning reserved_referral_code
+    `;
+    return updated[0].reserved_referral_code;
+  });
+}
+
+export async function submitWaitlistJoinPost(sessionId: string, rawPostUrl: string) {
+  await ensureWaitlistSchema();
+  const sql = getDb();
+  const completed = await sql<{ count: number }[]>`
+    select count(*)::integer as count from waitlist_task_progress
+    where session_id = ${sessionId}::uuid
+      and task_type in ('follow_notifications', 'engage_post')
+      and completed_at is not null
+  `;
+  if (Number(completed[0]?.count ?? 0) !== 2) {
+    throw new HttpError(409, "Complete both X tasks before submitting your post.", "WAITLIST_TASKS_INCOMPLETE");
+  }
+  const referralCode = await ensureSessionReferralCode(sessionId);
+  const verified = await verifyWaitlistPost(rawPostUrl, referralCode);
+  return inTransaction(async (sql) => {
+    await sql`select pg_advisory_xact_lock(hashtext(${`waitlist-x:${verified.xUsername}`}))`;
+    await sql`select pg_advisory_xact_lock(hashtext(${`waitlist-post:${verified.postId}`}))`;
+    const joined = await sql<{ exists: boolean }[]>`
+      select exists(select 1 from waitlist_entries where session_id = ${sessionId}::uuid) as exists
+    `;
+    if (joined[0]?.exists) {
+      throw new HttpError(409, "This session already joined the waitlist.", "WAITLIST_ALREADY_JOINED");
+    }
+    const completed = await sql<{ count: number }[]>`
+      select count(*)::integer as count from waitlist_task_progress
+      where session_id = ${sessionId}::uuid
+        and task_type in ('follow_notifications', 'engage_post')
+        and completed_at is not null
+    `;
+    if (Number(completed[0]?.count ?? 0) !== 2) {
+      throw new HttpError(409, "Complete both X tasks before submitting your post.", "WAITLIST_TASKS_INCOMPLETE");
+    }
+    const existing = await sql<{ post_url: string; x_username: string }[]>`
+      select post_url, x_username from waitlist_join_posts
+      where session_id = ${sessionId}::uuid limit 1 for update
+    `;
+    if (existing[0]) {
+      if (existing[0].post_url !== verified.postUrl) {
+        throw new HttpError(409, "This session already verified another X post.", "WAITLIST_POST_PROOF_EXISTS");
+      }
+      return {
+        xUsername: existing[0].x_username,
+        postUrl: existing[0].post_url,
+      };
+    }
+    const reused = await sql<{ account_used: boolean; post_used: boolean }[]>`
+      select
+        exists(
+          select 1 from waitlist_join_posts where lower(x_username) = ${verified.xUsername}
+          union all
+          select 1 from waitlist_bonus_posts
+          where lower(split_part(post_url, '/', 4)) = ${verified.xUsername}
+        ) as account_used,
+        exists(
+          select 1 from waitlist_join_posts where post_id = ${verified.postId}
+          union all
+          select 1 from waitlist_bonus_posts where post_id = ${verified.postId}
+        ) as post_used
+    `;
+    if (reused[0]?.account_used) {
+      throw new HttpError(409, "That X account has already been used for a waitlist entry.", "WAITLIST_X_ACCOUNT_USED");
+    }
+    if (reused[0]?.post_used) {
+      throw new HttpError(409, "That X post has already been submitted.", "WAITLIST_POST_USED");
+    }
+    const rows = await sql<{ x_username: string; post_url: string }[]>`
+      insert into waitlist_join_posts (session_id, x_username, post_url, post_id)
+      values (${sessionId}::uuid, ${verified.xUsername}, ${verified.postUrl}, ${verified.postId})
+      returning x_username, post_url
+    `;
+    return { xUsername: rows[0].x_username, postUrl: rows[0].post_url };
+  });
 }
 
 export async function joinWaitlist(sessionId: string, rawWallet: string, incomingReferralCode: string | null) {
@@ -235,6 +347,15 @@ export async function joinWaitlist(sessionId: string, rawWallet: string, incomin
       throw new HttpError(409, "Complete both required tasks before joining.", "WAITLIST_TASKS_INCOMPLETE");
     }
 
+    const proofRows = await sql<{ x_username: string; post_url: string; post_id: string }[]>`
+      select x_username, post_url, post_id from waitlist_join_posts
+      where session_id = ${sessionId}::uuid limit 1 for update
+    `;
+    const proof = proofRows[0];
+    if (!proof) {
+      throw new HttpError(409, "Submit a verified X post before entering your wallet.", "WAITLIST_POST_REQUIRED");
+    }
+
     const walletOwner = await sql<{ id: string }[]>`
       select id from waitlist_entries where lower(wallet_address) = ${wallet.toLowerCase()} limit 1 for update
     `;
@@ -251,16 +372,27 @@ export async function joinWaitlist(sessionId: string, rawWallet: string, incomin
       `;
       referrer = referrerRows[0];
     }
-    const referralCode = await createReferralCode(sql);
+    const sessionRows = await sql<{ reserved_referral_code: string | null }[]>`
+      select reserved_referral_code from waitlist_sessions
+      where id = ${sessionId}::uuid limit 1 for update
+    `;
+    const referralCode = sessionRows[0]?.reserved_referral_code;
+    if (!referralCode) {
+      throw new HttpError(409, "Refresh the waitlist and submit your X post again.", "WAITLIST_REFERRAL_NOT_READY");
+    }
     const inserted = await sql<{ id: string }[]>`
       insert into waitlist_entries (
-        session_id, wallet_address, referral_code, referred_by_entry_id
+        session_id, wallet_address, referral_code, referred_by_entry_id, bonus_points
       ) values (
-        ${sessionId}::uuid, ${wallet}, ${referralCode}, ${referrer?.id ?? null}::uuid
+        ${sessionId}::uuid, ${wallet}, ${referralCode}, ${referrer?.id ?? null}::uuid, 1
       )
       returning id
     `;
     const entryId = inserted[0].id;
+    await sql`
+      insert into waitlist_bonus_posts (entry_id, post_url, post_id)
+      values (${entryId}::uuid, ${proof.post_url}, ${proof.post_id})
+    `;
     if (referrer) {
       await sql`
         insert into waitlist_referrals (
@@ -282,9 +414,10 @@ export async function joinWaitlist(sessionId: string, rawWallet: string, incomin
 
 export async function submitWaitlistBonusPost(sessionId: string, rawPostUrl: string) {
   await ensureWaitlistSchema();
-  const { postId, postUrl } = parseWaitlistPostUrl(rawPostUrl);
+  const verified = await verifyWaitlistPost(rawPostUrl);
   const result = await inTransaction(async (sql) => {
-    await sql`select pg_advisory_xact_lock(hashtext(${`waitlist-bonus:${postId}`}))`;
+    await sql`select pg_advisory_xact_lock(hashtext(${`waitlist-x:${verified.xUsername}`}))`;
+    await sql`select pg_advisory_xact_lock(hashtext(${`waitlist-post:${verified.postId}`}))`;
     const entries = await sql<{ id: string }[]>`
       select id from waitlist_entries where session_id = ${sessionId}::uuid limit 1 for update
     `;
@@ -294,20 +427,36 @@ export async function submitWaitlistBonusPost(sessionId: string, rawPostUrl: str
       select post_url from waitlist_bonus_posts where entry_id = ${entry.id}::uuid limit 1
     `;
     if (existing[0]) {
-      if (existing[0].post_url !== postUrl) {
+      if (existing[0].post_url !== verified.postUrl) {
         throw new HttpError(409, "This wallet already received its one post bonus.", "WAITLIST_BONUS_EXISTS");
       }
       return entry.id;
     }
-    const reused = await sql<{ exists: boolean }[]>`
-      select exists(select 1 from waitlist_bonus_posts where post_id = ${postId}) as exists
+    const reused = await sql<{ account_used: boolean; post_used: boolean }[]>`
+      select
+        exists(
+          select 1 from waitlist_join_posts
+          where lower(x_username) = ${verified.xUsername} and session_id <> ${sessionId}::uuid
+          union all
+          select 1 from waitlist_bonus_posts bonus
+          where lower(split_part(bonus.post_url, '/', 4)) = ${verified.xUsername}
+            and bonus.entry_id <> ${entry.id}::uuid
+        ) as account_used,
+        exists(
+          select 1 from waitlist_join_posts where post_id = ${verified.postId}
+          union all
+          select 1 from waitlist_bonus_posts where post_id = ${verified.postId}
+        ) as post_used
     `;
-    if (reused[0]?.exists) {
+    if (reused[0]?.account_used) {
+      throw new HttpError(409, "That X account has already been used for another waitlist entry.", "WAITLIST_X_ACCOUNT_USED");
+    }
+    if (reused[0]?.post_used) {
       throw new HttpError(409, "That X post was already used for a waitlist bonus.", "WAITLIST_POST_USED");
     }
     await sql`
       insert into waitlist_bonus_posts (entry_id, post_url, post_id)
-      values (${entry.id}::uuid, ${postUrl}, ${postId})
+      values (${entry.id}::uuid, ${verified.postUrl}, ${verified.postId})
     `;
     await sql`
       update waitlist_entries set bonus_points = 1, updated_at = now()
@@ -390,6 +539,7 @@ export async function getWaitlistAdminData(search = "") {
       follow_completed_at: Date | string | null;
       engage_completed_at: Date | string | null;
       bonus_post_url: string | null;
+      x_username: string | null;
     }[]>`
       with ranked as (
         select entries.*,
@@ -405,7 +555,8 @@ export async function getWaitlistAdminData(search = "") {
         ranked.referral_count, ranked.bonus_points, ranked.score, ranked.joined_at,
         max(tasks.completed_at) filter (where tasks.task_type = 'follow_notifications') as follow_completed_at,
         max(tasks.completed_at) filter (where tasks.task_type = 'engage_post') as engage_completed_at,
-        bonus.post_url as bonus_post_url
+        bonus.post_url as bonus_post_url,
+        nullif(split_part(bonus.post_url, '/', 4), '') as x_username
       from ranked
       left join waitlist_entries referrer on referrer.id = ranked.referred_by_entry_id
       left join waitlist_task_progress tasks on tasks.session_id = ranked.session_id
@@ -414,6 +565,7 @@ export async function getWaitlistAdminData(search = "") {
         or lower(ranked.wallet_address) like ${`%${term}%`}
         or ranked.referral_code like ${`%${term}%`}
         or coalesce(bonus.post_url, '') like ${`%${term}%`}
+        or lower(coalesce(split_part(bonus.post_url, '/', 4), '')) like ${`%${term}%`}
       group by ranked.id, ranked.join_number, ranked.rank, ranked.wallet_address,
         ranked.referral_code, referrer.referral_code, ranked.referral_count,
         ranked.bonus_points, ranked.score, ranked.joined_at, bonus.post_url
@@ -442,6 +594,7 @@ export async function getWaitlistAdminData(search = "") {
       followCompletedAt: iso(row.follow_completed_at),
       engageCompletedAt: iso(row.engage_completed_at),
       bonusPostUrl: row.bonus_post_url,
+      xUsername: row.x_username,
     })),
   };
 }

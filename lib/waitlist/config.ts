@@ -54,6 +54,7 @@ export function parseWaitlistPostUrl(value: string) {
   return {
     postId: match[2],
     postUrl: `https://x.com/${match[1]}/status/${match[2]}`,
+    xUsername: match[1].toLowerCase(),
   };
 }
 

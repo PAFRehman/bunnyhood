@@ -57,6 +57,15 @@
 .waitlist-wallet-form input,.waitlist-bonus-form input { width:100%; border:0; border-bottom:2px solid rgba(8,10,7,.25); outline:0; background:transparent; padding:12px 0 17px; color:var(--wl-ink); font-size:clamp(19px,2.5vw,30px); font-weight:850; }
 .waitlist-wallet-form input:focus,.waitlist-bonus-form input:focus { border-color:#729300; }
 .waitlist-wallet-form input:disabled { opacity:.35; }
+.waitlist-required-post { display:grid; gap:15px; margin-bottom:30px; }
+.waitlist-required-post>span,.waitlist-post-verified>span { color:#5d7411; font-size:8px; font-weight:950; letter-spacing:.18em; }
+.waitlist-required-post>a { border-radius:999px; background:var(--wl-ink); padding:17px; color:var(--wl-lime); font-size:8px; font-weight:950; letter-spacing:.11em; text-align:center; }
+.waitlist-required-post label { margin-top:8px; margin-bottom:-5px; }
+.waitlist-required-post>small { color:#68705f; font-size:9px; line-height:1.5; }
+.waitlist-post-verified { display:grid; grid-template-columns:1fr auto; align-items:center; gap:8px 18px; margin-bottom:32px; border:1px solid rgba(111,143,0,.28); border-radius:14px; background:rgba(113,145,0,.09); padding:18px; }
+.waitlist-post-verified>span { grid-column:1/-1; }
+.waitlist-post-verified strong { font-size:18px; }
+.waitlist-post-verified a { color:#607c00; font-size:8px; font-weight:950; letter-spacing:.1em; }
 .waitlist-referred { margin:14px 0 0; color:#617600; font-size:8px; font-weight:950; letter-spacing:.12em; }
 .waitlist-wallet-form>button { display:flex; width:100%; min-height:66px; align-items:center; justify-content:space-between; margin-top:34px; border:0; border-radius:999px; background:var(--wl-ink); padding:0 25px 0 28px; color:var(--wl-lime); cursor:pointer; font-size:9px; font-weight:950; letter-spacing:.12em; }
 .waitlist-wallet-form>button:disabled { cursor:not-allowed; opacity:.45; }
