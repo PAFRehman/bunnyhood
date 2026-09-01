@@ -34,6 +34,7 @@ const migration = [
   "010_rabbit_hole_ipfs_art.sql",
   "011_upcoming_products_waitlist.sql",
   "012_waitlist_required_x_post.sql",
+  "013_wallet_eligibility_checker.sql",
 ].map((name) => readFileSync(join(root, "db/migrations", name), "utf8")).join("\n");
 const wheel = readFileSync(join(root, "lib/spin/wheel.ts"), "utf8");
 const campaigns = readFileSync(join(root, "lib/spin/campaigns.ts"), "utf8");
@@ -76,6 +77,12 @@ const waitlistJoinRoute = readFileSync(join(root, "app/api/waitlist/join/route.t
 const waitlistJoinPostRoute = readFileSync(join(root, "app/api/waitlist/join-post/route.ts"), "utf8");
 const waitlistBonusRoute = readFileSync(join(root, "app/api/waitlist/bonus-post/route.ts"), "utf8");
 const waitlistXPost = readFileSync(join(root, "lib/waitlist/x-post.ts"), "utf8");
+const checkerData = readFileSync(join(root, "lib/checker/data.ts"), "utf8");
+const checkerPage = readFileSync(join(root, "app/Checker/checker-app.tsx"), "utf8");
+const checkerAdminPage = readFileSync(join(root, "app/admin/checker/page.tsx"), "utf8");
+const checkerAdminApp = readFileSync(join(root, "app/admin/checker/checker-admin-app.tsx"), "utf8");
+const checkerPublicRoute = readFileSync(join(root, "app/api/checker/route.ts"), "utf8");
+const checkerAdminRoute = readFileSync(join(root, "app/api/admin/checker/route.ts"), "utf8");
 const storageGatedRoutes = [
   "app/api/spin/auth/x/start/route.ts",
   "app/api/spin/auth/x/callback/route.ts",
@@ -213,6 +220,13 @@ if (!/create table if not exists waitlist_sheet_outbox/.test(migration) || !/que
 if (!/from "next\/server"/.test(`${waitlistJoinRoute}\n${waitlistBonusRoute}`) || !/after\(async \(\) =>/.test(waitlistJoinRoute) || !/after\(async \(\) =>/.test(waitlistBonusRoute)) failures.push("Waitlist Sheets updates are not flushed after the user response.");
 if (!/requireSpinAdmin/.test(waitlistAdminRoute) || !/verifyAdminTicket/.test(waitlistAdminPage) || /admin\/waitlist/.test(waitlistApp)) failures.push("Waitlist admin data is not private or the public page exposes its route.");
 if (!/maskWallet/.test(waitlistData) || !/includePrivate \? row\.wallet_address : maskWallet/.test(waitlistData)) failures.push("Public waitlist rankings can expose complete wallets.");
+if (!/create table if not exists checker_wallets/.test(migration) || !/eligibility_type in \('GTD', 'FCFS'\)/.test(migration)) failures.push("The GTD/FCFS wallet checker schema is missing or accepts unknown statuses.");
+if (!/requireCheckerWallet/.test(checkerData) || !/on conflict \(wallet_address\) do update/.test(checkerData)) failures.push("Checker wallet validation or idempotent bulk import is missing.");
+if (!/anonymousRequestKey/.test(checkerPublicRoute) || !/enforceRateLimit/.test(checkerPublicRoute) || /getCheckerStats|listCheckerWallets/.test(checkerPublicRoute)) failures.push("The public checker is not throttled or exposes private counts/list data.");
+if (!/requireSpinAdmin/.test(checkerAdminRoute) || !/assertSameOrigin/.test(checkerAdminRoute) || !/verifyAdminTicket/.test(checkerAdminPage)) failures.push("The checker admin page or mutation API is not protected by the existing admin session.");
+if (!/GTD WALLETS ADDED/.test(checkerAdminApp) || !/FCFS WALLETS ADDED/.test(checkerAdminApp) || !/stats\.gtd/.test(checkerAdminApp) || !/stats\.fcfs/.test(checkerAdminApp)) failures.push("Private GTD/FCFS wallet counts are missing from the checker admin.");
+if (!/We are still adding wallets\. The checker updates daily\./.test(checkerPage) || !/CHECK MY WALLET/.test(checkerPage)) failures.push("The public checker flow or not-eligible update copy is missing.");
+if (/admin\/checker/.test(checkerPage) || /href=["']\/admin\/checker/.test(adminApp)) failures.push("The hidden checker admin URL leaked into public or main-admin navigation.");
 if (/debug:\s*stack|Internal Error:/.test(readFileSync(join(root, "lib/spin/http.ts"), "utf8"))) failures.push("Internal server stack details are exposed to clients.");
 
 if (failures.length) {
