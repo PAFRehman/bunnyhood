@@ -14,9 +14,10 @@ export async function POST(request: Request) {
     const body = await readJson<{ walletAddress?: string }>(request, 2_048);
     const eligibility = await findCheckerEligibility(body.walletAddress ?? "");
     return json({
-      result: eligibility
-        ? { eligible: true as const, status: eligibility }
-        : { eligible: false as const, status: "NOT_ELIGIBLE" as const },
+      result: {
+        eligible: true as const,
+        status: eligibility ?? "PUBLIC" as const,
+      },
     });
   } catch (error) {
     return routeError(error);

@@ -225,9 +225,11 @@ if (!/requireCheckerWallet/.test(checkerData) || !/on conflict \(wallet_address\
 if (!/anonymousRequestKey/.test(checkerPublicRoute) || !/enforceRateLimit/.test(checkerPublicRoute) || /getCheckerStats|listCheckerWallets/.test(checkerPublicRoute)) failures.push("The public checker is not throttled or exposes private counts/list data.");
 if (!/requireSpinAdmin/.test(checkerAdminRoute) || !/assertSameOrigin/.test(checkerAdminRoute) || !/verifyAdminTicket/.test(checkerAdminPage)) failures.push("The checker admin page or mutation API is not protected by the existing admin session.");
 if (!/GTD WALLETS ADDED/.test(checkerAdminApp) || !/FCFS WALLETS ADDED/.test(checkerAdminApp) || !/stats\.gtd/.test(checkerAdminApp) || !/stats\.fcfs/.test(checkerAdminApp)) failures.push("Private GTD/FCFS wallet counts are missing from the checker admin.");
-if (!/we keep adding new spots daily\./.test(checkerPage) || !/CHECK MY WALLET/.test(checkerPage)) failures.push("The public checker flow or daily-spots copy is missing.");
-if (!/SHARE ON X/.test(checkerPage) || !/x\.com\/intent\/post/.test(checkerPage) || !/@BunnysHood/.test(checkerPage)) failures.push("The Checker result cannot be shared on X with the BunnyHood tag.");
-if (/01 \/ GUARANTEED|RH-CHAIN \/ 143|CHECKER UPDATES DAILY|waiting for the next list update/.test(checkerPage)) failures.push("Removed Checker result codes or update copy remain public.");
+if (!/EVERY WALLET · PUBLIC ELIGIBLE/.test(checkerPage) || !/status: eligibility \?\? "PUBLIC"/.test(checkerPublicRoute)) failures.push("Every valid wallet is not guaranteed Public-round eligibility.");
+if (!/CONGRATULATIONS!/.test(checkerPage) || !/GTD/.test(checkerPage) || !/FCFS/.test(checkerPage) || !/PUBLIC/.test(checkerPage) || !/round\.eligible \? "ELIGIBLE" : "NOT ELIGIBLE"/.test(checkerPage)) failures.push("The Checker round-by-round congratulations result is incomplete.");
+if (!/checker-opening/.test(checkerPage) || !/bunny-hood-logo\.png/.test(checkerPage)) failures.push("The BunnyHood opening animation or corrected logo is missing.");
+if (!/SHARE ON X/.test(checkerPage) || !/x\.com\/intent\/post/.test(checkerPage) || !/@BunnysHood/.test(checkerPage) || !/eligibleRounds\.map/.test(checkerPage)) failures.push("The Checker result cannot share its exact eligible rounds on X.");
+if (/WALLET INDEX · LIVE|01 \/ GUARANTEED|RH-CHAIN \/ 143|CHECKER UPDATES DAILY|waiting for the next list update/.test(checkerPage)) failures.push("Removed Checker labels remain public.");
 if (/admin\/checker/.test(checkerPage) || /href=["']\/admin\/checker/.test(adminApp)) failures.push("The hidden checker admin URL leaked into public or main-admin navigation.");
 if (/debug:\s*stack|Internal Error:/.test(readFileSync(join(root, "lib/spin/http.ts"), "utf8"))) failures.push("Internal server stack details are exposed to clients.");
 

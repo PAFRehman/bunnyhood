@@ -90,8 +90,10 @@ try {
   const checker = await fetch(`http://127.0.0.1:${port}/Checker`, { redirect: "manual" });
   const checkerHtml = await checker.text();
   assert(checker.status === 200, `Public Checker returned ${checker.status}.`);
-  assert(checkerHtml.includes("FIND") && checkerHtml.includes("YOUR SPOT"), "Checker hero copy is missing.");
-  assert(checkerHtml.includes("CHECK MY WALLET"), "Checker wallet form is missing.");
+  assert(checkerHtml.includes("CHECK YOUR") && checkerHtml.includes("ELIGIBILITY"), "Checker hero copy is missing.");
+  assert(checkerHtml.includes("CHECK ELIGIBILITY"), "Checker wallet form is missing.");
+  assert(checkerHtml.includes("Every valid wallet is eligible for the Public round."), "Universal Public eligibility is missing.");
+  assert(!checkerHtml.includes("WALLET INDEX · LIVE"), "The removed live-index label remains public.");
   assert(!checkerHtml.includes("/admin/checker"), "The hidden Checker admin URL leaked onto the public page.");
 
   const checkerAdmin = await fetch(`http://127.0.0.1:${port}/admin/checker`, { redirect: "manual" });
