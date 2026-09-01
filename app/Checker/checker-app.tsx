@@ -33,25 +33,28 @@ function shortWallet(wallet: string) {
   return `${wallet.slice(0, 8)}…${wallet.slice(-6)}`;
 }
 
-const resultCopy: Record<CheckerStatus, { kicker: string; title: string; body: string; code: string }> = {
+const resultCopy: Record<CheckerStatus, { kicker: string; title: string; body: string }> = {
   GTD: {
     kicker: "ACCESS CONFIRMED",
     title: "YOU'RE GTD.",
     body: "Your wallet holds a Guaranteed spot in BunnyHood.",
-    code: "01 / GUARANTEED",
   },
   FCFS: {
     kicker: "ACCESS CONFIRMED",
     title: "YOU'RE FCFS.",
     body: "Your wallet is on the First Come, First Served list. Be ready when mint opens.",
-    code: "02 / FIRST COME",
   },
   NOT_ELIGIBLE: {
     kicker: "NOT ELIGIBLE YET",
     title: "STAY CLOSE.",
-    body: "We are still adding wallets. The checker updates daily.",
-    code: "00 / NEXT UPDATE",
+    body: "Not eligible yet? Follow @BunnysHood — we keep adding new spots daily.",
   },
+};
+
+const shareCopy: Record<CheckerStatus, string> = {
+  GTD: "I'm GTD for @BunnysHood 🐰\n\nCheck your wallet:",
+  FCFS: "I'm FCFS for @BunnysHood 🐰\n\nCheck your wallet:",
+  NOT_ELIGIBLE: "@BunnysHood keeps adding new spots daily 🐰\n\nCheck your wallet:",
 };
 
 export function CheckerApp() {
@@ -95,6 +98,13 @@ export function CheckerApp() {
     setError("");
   }
 
+  function shareOnX(status: CheckerStatus) {
+    const target = new URL("https://x.com/intent/post");
+    target.searchParams.set("text", shareCopy[status]);
+    target.searchParams.set("url", `${window.location.origin}/Checker`);
+    window.open(target.toString(), "_blank", "noopener,noreferrer");
+  }
+
   return (
     <main className={`checker-page${checking ? " is-scanning" : ""}${result ? ` has-result result-${result.status.toLowerCase()}` : ""}`}>
       <div className="checker-noise" aria-hidden="true" />
@@ -113,7 +123,7 @@ export function CheckerApp() {
         <div className="checker-copy">
           <p className="checker-kicker"><span>BH / 001</span> ACCESS CHECKER</p>
           <h1>FIND<br /><em>YOUR SPOT.</em></h1>
-          <p className="checker-intro">Search your wallet to see if you are GTD, FCFS, or waiting for the next list update.</p>
+          <p className="checker-intro">Search your wallet to see if you are GTD or FCFS. Not eligible yet? Follow @BunnysHood — we keep adding spots daily.</p>
           <div className="checker-meta">
             <span><b>01</b> ENTER WALLET</span>
             <span><b>02</b> SCAN LIST</span>
@@ -130,7 +140,7 @@ export function CheckerApp() {
           <div className="terminal-panel">
             <div className="terminal-head">
               <span>ELIGIBILITY TERMINAL</span>
-              <span>RH-CHAIN / 143</span>
+              <span>ROBINHOOD CHAIN</span>
             </div>
 
             {!result && (
@@ -171,7 +181,7 @@ export function CheckerApp() {
                 <span>{copy.body}</span>
                 <code>{shortWallet(checkedWallet)}</code>
                 <div className="result-footer">
-                  <b>{copy.code}</b>
+                  <button type="button" onClick={() => shareOnX(result.status)}>SHARE ON X ↗</button>
                   <button type="button" onClick={reset}>CHECK ANOTHER WALLET ↗</button>
                 </div>
               </section>
@@ -182,7 +192,7 @@ export function CheckerApp() {
 
       <footer className="checker-footer">
         <span>© 2026 BUNNYHOOD</span>
-        <span>CHECKER UPDATES DAILY</span>
+        <span>BUILT FOR THE HOOD</span>
         <a href="https://x.com/BunnysHood" target="_blank" rel="noreferrer">FOLLOW @BUNNYSHOOD ↗</a>
       </footer>
     </main>
