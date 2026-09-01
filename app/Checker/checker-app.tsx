@@ -1,8 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import { FormEvent, useMemo, useState } from "react";
+import { SiteNav } from "../site-shell";
 
 type CheckerStatus = "GTD" | "FCFS" | "PUBLIC";
 type CheckerResult = {
@@ -71,8 +71,10 @@ export function CheckerApp() {
 
   const normalizedWallet = wallet.trim();
   const valid = EVM_WALLET.test(normalizedWallet);
-  const rounds = useMemo(() => result ? mintRounds(result.status) : [], [result]);
-  const eligibleRounds = useMemo(() => rounds.filter((round) => round.eligible), [rounds]);
+  const eligibleRounds = useMemo(
+    () => result ? mintRounds(result.status).filter((round) => round.eligible) : [],
+    [result],
+  );
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -115,30 +117,16 @@ export function CheckerApp() {
       "text",
       `I'm eligible for ${roundCopy} on @BunnysHood 🐰\n\nCheck your eligibility:`,
     );
-    target.searchParams.set("url", `${window.location.origin}/Checker`);
+    target.searchParams.set("url", `${window.location.origin}/checker`);
     window.open(target.toString(), "_blank", "noopener,noreferrer");
   }
 
   return (
     <main className={`checker-page${checking ? " is-scanning" : ""}${result ? " has-result" : ""}`}>
-      <div className="checker-opening" aria-hidden="true">
-        <div className="opening-grid" />
-        <div className="opening-brand">
-          <span className="opening-logo"><Image src="/assets/bunny-hood-logo.png" alt="" width={240} height={203} priority /></span>
-          <strong>BUNNY HOOD</strong>
-          <i>ELIGIBILITY CHECKER</i>
-        </div>
-        <div className="opening-progress"><span /></div>
-      </div>
+      <div className="page-intro" aria-hidden="true"><span>BH</span><i /><b>ENTER THE HOOD</b></div>
 
       <div className="checker-bg" aria-hidden="true" />
-      <header className="checker-nav">
-        <Link className="checker-brand" href="/" aria-label="BunnyHood home">
-          <span className="checker-brand-logo"><Image src="/assets/bunny-hood-logo.png" alt="" width={108} height={91} priority /></span>
-          <strong>BUNNY <em>HOOD</em></strong>
-        </Link>
-        <span className="checker-nav-title">ELIGIBILITY CHECKER</span>
-      </header>
+      <SiteNav />
 
       <section className="checker-stage">
         <div className="checker-shell">
@@ -159,7 +147,7 @@ export function CheckerApp() {
                 <div className="checker-heading">
                   <p><i /> BUNNYHOOD MINT ACCESS</p>
                   <h1>CHECK YOUR<br /><em>ELIGIBILITY.</em></h1>
-                  <span>Enter your EVM wallet to see every round you can access. No wallet connection or signature required.</span>
+                  <span>Enter your EVM wallet to see every mint round you can access.</span>
                 </div>
 
                 <form className="checker-form" onSubmit={submit} noValidate>
@@ -200,11 +188,10 @@ export function CheckerApp() {
                 </div>
 
                 <div className="round-list">
-                  {rounds.map((round) => (
-                    <article className={`round-row${round.eligible ? " eligible" : " unavailable"}`} key={round.id}>
-                      <div><strong>{round.title}</strong><span>{round.eligible ? "ELIGIBLE" : "NOT ELIGIBLE"}</span></div>
+                  {eligibleRounds.map((round) => (
+                    <article className="round-row eligible" key={round.id}>
+                      <div><strong>{round.title}</strong><span>ELIGIBLE</span></div>
                       <p>{round.detail}</p>
-                      <b>{round.eligible ? "TBA" : "—"}</b>
                     </article>
                   ))}
                 </div>
