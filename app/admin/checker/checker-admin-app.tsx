@@ -155,7 +155,7 @@ export function CheckerAdminApp() {
         <Link href="/">BH / PRIVATE</Link>
         <nav>
           <Link href="/admin/spin">SPIN ADMIN</Link>
-          <Link href="/Checker">OPEN PUBLIC CHECKER ↗</Link>
+          <Link href="/checker">OPEN PUBLIC CHECKER ↗</Link>
         </nav>
       </header>
 

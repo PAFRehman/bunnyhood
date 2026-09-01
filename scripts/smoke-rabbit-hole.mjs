@@ -87,14 +87,22 @@ try {
     "Waitlist ledger did not redirect through the admin gate.",
   );
 
-  const checker = await fetch(`http://127.0.0.1:${port}/Checker`, { redirect: "manual" });
+  const checker = await fetch(`http://127.0.0.1:${port}/checker`, { redirect: "manual" });
   const checkerHtml = await checker.text();
   assert(checker.status === 200, `Public Checker returned ${checker.status}.`);
   assert(checkerHtml.includes("CHECK YOUR") && checkerHtml.includes("ELIGIBILITY"), "Checker hero copy is missing.");
   assert(checkerHtml.includes("CHECK ELIGIBILITY"), "Checker wallet form is missing.");
   assert(checkerHtml.includes("Every valid wallet is eligible for the Public round."), "Universal Public eligibility is missing.");
+  assert(checkerHtml.includes("ENTER THE HOOD"), "The official BunnyHood intro is missing from Checker.");
+  assert(checkerHtml.includes("Collection") && checkerHtml.includes("Roadmap") && checkerHtml.includes("Whitepaper") && checkerHtml.includes("Waitlist") && checkerHtml.includes("Spin the Wheel"), "The official BunnyHood navigation is incomplete on Checker.");
   assert(!checkerHtml.includes("WALLET INDEX · LIVE"), "The removed live-index label remains public.");
+  assert(!checkerHtml.includes("ELIGIBILITY CHECKER"), "The removed Checker navigation label remains public.");
+  assert(!checkerHtml.includes("No wallet connection or signature required."), "The removed wallet disclosure remains public.");
   assert(!checkerHtml.includes("/admin/checker"), "The hidden Checker admin URL leaked onto the public page.");
+
+  const checkerAlias = await fetch(`http://127.0.0.1:${port}/Checker`, { redirect: "manual" });
+  assert(checkerAlias.status === 308, `Legacy Checker alias returned ${checkerAlias.status}.`);
+  assert(checkerAlias.headers.get("location") === "/checker", "Legacy Checker alias has the wrong target.");
 
   const checkerAdmin = await fetch(`http://127.0.0.1:${port}/admin/checker`, { redirect: "manual" });
   assert(checkerAdmin.status === 307, `Checker admin gate returned ${checkerAdmin.status}.`);

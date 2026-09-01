@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import "./checker.css";
+import "../Checker/checker.css";
 
 export const metadata: Metadata = {
   title: "Wallet Checker — Bunny Hood",
