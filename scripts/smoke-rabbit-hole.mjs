@@ -86,6 +86,20 @@ try {
     waitlistAdmin.headers.get("location") === "/admin/spin?next=/admin/waitlist",
     "Waitlist ledger did not redirect through the admin gate.",
   );
+
+  const checker = await fetch(`http://127.0.0.1:${port}/Checker`, { redirect: "manual" });
+  const checkerHtml = await checker.text();
+  assert(checker.status === 200, `Public Checker returned ${checker.status}.`);
+  assert(checkerHtml.includes("FIND") && checkerHtml.includes("YOUR SPOT"), "Checker hero copy is missing.");
+  assert(checkerHtml.includes("CHECK MY WALLET"), "Checker wallet form is missing.");
+  assert(!checkerHtml.includes("/admin/checker"), "The hidden Checker admin URL leaked onto the public page.");
+
+  const checkerAdmin = await fetch(`http://127.0.0.1:${port}/admin/checker`, { redirect: "manual" });
+  assert(checkerAdmin.status === 307, `Checker admin gate returned ${checkerAdmin.status}.`);
+  assert(
+    checkerAdmin.headers.get("location") === "/admin/spin?next=/admin/checker",
+    "Checker wallet manager did not redirect through the admin gate.",
+  );
 } finally {
   await stopServer(server);
 }
@@ -112,4 +126,4 @@ try {
   await stopServer(server);
 }
 
-console.log("Rabbit Hole routing, intro, retirement redirect, and admin gate smoke checks passed.");
+console.log("Rabbit Hole, waitlist, and Checker routing and admin gate smoke checks passed.");
