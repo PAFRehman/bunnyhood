@@ -1,13 +1,19 @@
 "use client";
 
-import Link from "next/link";
 import Image from "next/image";
+import Link from "next/link";
 import { FormEvent, useMemo, useState } from "react";
 
-type CheckerStatus = "GTD" | "FCFS" | "NOT_ELIGIBLE";
+type CheckerStatus = "GTD" | "FCFS" | "PUBLIC";
 type CheckerResult = {
-  eligible: boolean;
+  eligible: true;
   status: CheckerStatus;
+};
+type MintRound = {
+  id: CheckerStatus;
+  title: string;
+  detail: string;
+  eligible: boolean;
 };
 
 const EVM_WALLET = /^0x[0-9a-fA-F]{40}$/;
@@ -33,29 +39,28 @@ function shortWallet(wallet: string) {
   return `${wallet.slice(0, 8)}…${wallet.slice(-6)}`;
 }
 
-const resultCopy: Record<CheckerStatus, { kicker: string; title: string; body: string }> = {
-  GTD: {
-    kicker: "ACCESS CONFIRMED",
-    title: "YOU'RE GTD.",
-    body: "Your wallet holds a Guaranteed spot in BunnyHood.",
-  },
-  FCFS: {
-    kicker: "ACCESS CONFIRMED",
-    title: "YOU'RE FCFS.",
-    body: "Your wallet is on the First Come, First Served list. Be ready when mint opens.",
-  },
-  NOT_ELIGIBLE: {
-    kicker: "NOT ELIGIBLE YET",
-    title: "STAY CLOSE.",
-    body: "Not eligible yet? Follow @BunnysHood — we keep adding new spots daily.",
-  },
-};
-
-const shareCopy: Record<CheckerStatus, string> = {
-  GTD: "I'm GTD for @BunnysHood 🐰\n\nCheck your wallet:",
-  FCFS: "I'm FCFS for @BunnysHood 🐰\n\nCheck your wallet:",
-  NOT_ELIGIBLE: "@BunnysHood keeps adding new spots daily 🐰\n\nCheck your wallet:",
-};
+function mintRounds(status: CheckerStatus): MintRound[] {
+  return [
+    {
+      id: "GTD",
+      title: "GTD",
+      detail: "Guaranteed mint access",
+      eligible: status === "GTD",
+    },
+    {
+      id: "FCFS",
+      title: "FCFS",
+      detail: "First come, first served",
+      eligible: status === "FCFS",
+    },
+    {
+      id: "PUBLIC",
+      title: "PUBLIC",
+      detail: "Open to every valid wallet",
+      eligible: true,
+    },
+  ];
+}
 
 export function CheckerApp() {
   const [wallet, setWallet] = useState("");
@@ -66,7 +71,8 @@ export function CheckerApp() {
 
   const normalizedWallet = wallet.trim();
   const valid = EVM_WALLET.test(normalizedWallet);
-  const copy = useMemo(() => result ? resultCopy[result.status] : null, [result]);
+  const rounds = useMemo(() => result ? mintRounds(result.status) : [], [result]);
+  const eligibleRounds = useMemo(() => rounds.filter((round) => round.eligible), [rounds]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -80,7 +86,7 @@ export function CheckerApp() {
     try {
       const [nextResult] = await Promise.all([
         checkWallet(normalizedWallet),
-        new Promise((resolve) => window.setTimeout(resolve, 720)),
+        new Promise((resolve) => window.setTimeout(resolve, 760)),
       ]);
       setCheckedWallet(normalizedWallet);
       setResult(nextResult);
@@ -98,101 +104,124 @@ export function CheckerApp() {
     setError("");
   }
 
-  function shareOnX(status: CheckerStatus) {
+  function shareOnX() {
+    if (!result) return;
+    const names = eligibleRounds.map((round) => round.title);
+    const roundCopy = names.length === 1
+      ? `the ${names[0]} mint round`
+      : `${names.length} mint rounds: ${names.join(" + ")}`;
     const target = new URL("https://x.com/intent/post");
-    target.searchParams.set("text", shareCopy[status]);
+    target.searchParams.set(
+      "text",
+      `I'm eligible for ${roundCopy} on @BunnysHood 🐰\n\nCheck your eligibility:`,
+    );
     target.searchParams.set("url", `${window.location.origin}/Checker`);
     window.open(target.toString(), "_blank", "noopener,noreferrer");
   }
 
   return (
-    <main className={`checker-page${checking ? " is-scanning" : ""}${result ? ` has-result result-${result.status.toLowerCase()}` : ""}`}>
-      <div className="checker-noise" aria-hidden="true" />
-      <div className="checker-grid" aria-hidden="true" />
-      <div className="checker-aurora" aria-hidden="true" />
+    <main className={`checker-page${checking ? " is-scanning" : ""}${result ? " has-result" : ""}`}>
+      <div className="checker-opening" aria-hidden="true">
+        <div className="opening-grid" />
+        <div className="opening-brand">
+          <span className="opening-logo"><Image src="/assets/bunny-hood-logo.png" alt="" width={240} height={203} priority /></span>
+          <strong>BUNNY HOOD</strong>
+          <i>ELIGIBILITY CHECKER</i>
+        </div>
+        <div className="opening-progress"><span /></div>
+      </div>
 
+      <div className="checker-bg" aria-hidden="true" />
       <header className="checker-nav">
         <Link className="checker-brand" href="/" aria-label="BunnyHood home">
-          <span><Image src="/assets/bunny-hood-mark.webp" alt="" width={74} height={74} priority /></span>
-          <strong>BUNNYHOOD</strong>
+          <span className="checker-brand-logo"><Image src="/assets/bunny-hood-logo.png" alt="" width={108} height={91} priority /></span>
+          <strong>BUNNY <em>HOOD</em></strong>
         </Link>
-        <div className="checker-live"><i /> WALLET INDEX · LIVE</div>
+        <span className="checker-nav-title">ELIGIBILITY CHECKER</span>
       </header>
 
       <section className="checker-stage">
-        <div className="checker-copy">
-          <p className="checker-kicker"><span>BH / 001</span> ACCESS CHECKER</p>
-          <h1>FIND<br /><em>YOUR SPOT.</em></h1>
-          <p className="checker-intro">Search your wallet to see if you are GTD or FCFS. Not eligible yet? Follow @BunnysHood — we keep adding spots daily.</p>
-          <div className="checker-meta">
-            <span><b>01</b> ENTER WALLET</span>
-            <span><b>02</b> SCAN LIST</span>
-            <span><b>03</b> GET STATUS</span>
-          </div>
-        </div>
-
-        <div className="checker-terminal">
-          <div className="terminal-orbit" aria-hidden="true">
-            <i className="orbit-a" /><i className="orbit-b" /><i className="orbit-c" />
-            <span className="orbit-core"><Image src="/assets/bunny-hood-mark.webp" alt="" width={88} height={88} /></span>
-          </div>
-
-          <div className="terminal-panel">
-            <div className="terminal-head">
-              <span>ELIGIBILITY TERMINAL</span>
-              <span>ROBINHOOD CHAIN</span>
+        <div className="checker-shell">
+          <aside className="checker-visual">
+            <Image className="checker-mascot" src="/assets/bunny-hood-hero.webp" alt="BunnyHood mascot" fill sizes="(max-width: 850px) 100vw, 44vw" priority />
+            <div className="checker-visual-shade" />
+            <div className="visual-copy">
+              <span>BH / MINT ACCESS</span>
+              <strong>ONE WALLET.<br />EVERY ROUND.</strong>
             </div>
+            <div className="visual-rounds"><span>GTD</span><span>FCFS</span><span>PUBLIC</span></div>
+            {result && <div className="result-confetti" aria-hidden="true">{Array.from({ length: 14 }, (_, index) => <i key={index} />)}</div>}
+          </aside>
 
-            {!result && (
-              <form className="checker-form" onSubmit={submit} noValidate>
-                <label htmlFor="checker-wallet">EVM WALLET ADDRESS</label>
-                <div className="checker-input-shell">
-                  <span>0x</span>
-                  <input
-                    id="checker-wallet"
-                    value={wallet.replace(/^0x/i, "")}
-                    onChange={(event) => {
-                      setWallet(event.target.value ? `0x${event.target.value.replace(/^0x/i, "")}` : "");
-                      setError("");
-                    }}
-                    placeholder="36b5009B7407C83b149D3EDb96Ec2442b20d6334"
-                    maxLength={42}
-                    autoComplete="off"
-                    autoCapitalize="off"
-                    spellCheck={false}
-                    disabled={checking}
-                  />
-                  <i className={valid ? "valid" : ""}>{valid ? "READY" : "40 HEX"}</i>
+          <section className="checker-content">
+            {!result ? (
+              <>
+                <div className="checker-heading">
+                  <p><i /> BUNNYHOOD MINT ACCESS</p>
+                  <h1>CHECK YOUR<br /><em>ELIGIBILITY.</em></h1>
+                  <span>Enter your EVM wallet to see every round you can access. No wallet connection or signature required.</span>
                 </div>
-                {error && <p className="checker-error" role="alert">{error}</p>}
-                <button type="submit" disabled={checking || !valid}>
-                  <span>{checking ? "SCANNING THE HOOD…" : "CHECK MY WALLET"}</span>
-                  <b>{checking ? <i className="button-loader" /> : "↗"}</b>
-                </button>
-                <p className="checker-privacy">READ-ONLY CHECK · NO WALLET CONNECTION OR SIGNATURE</p>
-              </form>
-            )}
 
-            {result && copy && (
+                <form className="checker-form" onSubmit={submit} noValidate>
+                  <label htmlFor="checker-wallet">YOUR EVM WALLET</label>
+                  <div className="checker-input-shell">
+                    <span>0x</span>
+                    <input
+                      id="checker-wallet"
+                      value={wallet.replace(/^0x/i, "")}
+                      onChange={(event) => {
+                        setWallet(event.target.value ? `0x${event.target.value.replace(/^0x/i, "")}` : "");
+                        setError("");
+                      }}
+                      placeholder="36b5009B7407C83b149D3EDb96Ec2442b20d6334"
+                      maxLength={42}
+                      autoComplete="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
+                      disabled={checking}
+                    />
+                    <i className={valid ? "valid" : ""}>{valid ? "READY" : "40 HEX"}</i>
+                  </div>
+                  {error && <p className="checker-error" role="alert">{error}</p>}
+                  <button type="submit" disabled={checking || !valid}>
+                    <span>{checking ? "CHECKING YOUR ROUNDS…" : "CHECK ELIGIBILITY"}</span>
+                    <b>{checking ? <i className="button-loader" /> : "↗"}</b>
+                  </button>
+                  <small>Every valid wallet is eligible for the Public round.</small>
+                </form>
+              </>
+            ) : (
               <section className="checker-result" aria-live="polite">
-                <div className="result-signal" aria-hidden="true"><i /><i /><i /></div>
-                <p>{copy.kicker}</p>
-                <h2>{copy.title}</h2>
-                <span>{copy.body}</span>
-                <code>{shortWallet(checkedWallet)}</code>
-                <div className="result-footer">
-                  <button type="button" onClick={() => shareOnX(result.status)}>SHARE ON X ↗</button>
-                  <button type="button" onClick={reset}>CHECK ANOTHER WALLET ↗</button>
+                <div className="result-heading">
+                  <p>CONGRATULATIONS!</p>
+                  <h2>YOU&apos;RE ELIGIBLE.</h2>
+                  <span>You&apos;re eligible for <strong>{eligibleRounds.length} BunnyHood mint {eligibleRounds.length === 1 ? "round" : "rounds"}</strong>.</span>
+                  <code>{shortWallet(checkedWallet)}</code>
+                </div>
+
+                <div className="round-list">
+                  {rounds.map((round) => (
+                    <article className={`round-row${round.eligible ? " eligible" : " unavailable"}`} key={round.id}>
+                      <div><strong>{round.title}</strong><span>{round.eligible ? "ELIGIBLE" : "NOT ELIGIBLE"}</span></div>
+                      <p>{round.detail}</p>
+                      <b>{round.eligible ? "TBA" : "—"}</b>
+                    </article>
+                  ))}
+                </div>
+
+                <div className="result-actions">
+                  <button type="button" onClick={shareOnX}>SHARE ON X ↗</button>
+                  <button type="button" onClick={reset}>CHECK ANOTHER WALLET</button>
                 </div>
               </section>
             )}
-          </div>
+          </section>
         </div>
       </section>
 
       <footer className="checker-footer">
-        <span>© 2026 BUNNYHOOD</span>
-        <span>BUILT FOR THE HOOD</span>
+        <span>© 2026 BUNNY HOOD</span>
+        <strong>EVERY WALLET · PUBLIC ELIGIBLE</strong>
         <a href="https://x.com/BunnysHood" target="_blank" rel="noreferrer">FOLLOW @BUNNYSHOOD ↗</a>
       </footer>
     </main>
