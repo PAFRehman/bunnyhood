@@ -1,6 +1,7 @@
 import { requireSpinAdmin } from "@/lib/spin/admin";
 import { recordAdminAction } from "@/lib/spin/audit";
 import { assertSameOrigin, HttpError, json, readJson, routeError } from "@/lib/spin/http";
+import { ensureProductionSchema } from "@/lib/spin/schema";
 import { setWalletChangesAllowed, setWalletSubmissionsAllowed } from "@/lib/spin/settings";
 
 export const runtime = "nodejs";
@@ -10,6 +11,7 @@ export async function POST(request: Request) {
   try {
     assertSameOrigin(request);
     requireSpinAdmin(request);
+    await ensureProductionSchema();
     const body = await readJson<{
       allowWalletChanges?: unknown;
       allowWalletSubmissions?: unknown;

@@ -1,5 +1,6 @@
 import { randomInt, randomUUID } from "node:crypto";
 import type { SpinUser } from "./auth";
+import { getBunnyState, type BunnyRewardType } from "./bunny";
 import type { CampaignRow, TaskType } from "./campaigns";
 import { getActiveCampaign, getLatestPrizeCampaign, settleMaturedCampaignTasks } from "./campaigns";
 import { getDb, inTransaction, type SpinDb } from "./db";
@@ -9,7 +10,7 @@ import { enforceRateLimit } from "./rate-limit";
 import { ensureProductionSchema } from "./schema";
 import { getShopState, type ShopSpotType } from "./shop";
 import { hashRedeemCode, normalizeRedeemCode, safeEqual, sha256 } from "./security";
-import { getSpinSettings } from "./settings";
+import { getSpinSettings, type SpinSettings } from "./settings";
 import { getStorageSafetyState, type StorageSafetyState } from "./storage-safety";
 import { ensureReferralCode, type SpinUserRow } from "./users";
 
@@ -613,7 +614,7 @@ export async function getWheelState(user: SpinUser | null, knownStorage?: Storag
     return {
       authenticated: false,
       storageSafetyPaused: false,
-      campaign: publicCampaign(campaign),
+      campaign: publicCampaign(campaign, settings),
       wheelAvailable: Boolean(prizeCampaign),
       walletChangesAllowed: settings.allowWalletChanges,
       walletSubmissionsAllowed: settings.allowWalletSubmissions,
@@ -630,7 +631,7 @@ export async function getWheelState(user: SpinUser | null, knownStorage?: Storag
     return {
       authenticated: false,
       storageSafetyPaused: false,
-      campaign: publicCampaign(campaign),
+      campaign: publicCampaign(campaign, settings),
       wheelAvailable: Boolean(prizeCampaign),
       walletChangesAllowed: settings.allowWalletChanges,
       walletSubmissionsAllowed: settings.allowWalletSubmissions,
@@ -657,19 +658,23 @@ export async function getWheelState(user: SpinUser | null, knownStorage?: Storag
     limit 1
   ` : [];
   const shop = campaign ? await getShopState(sql, campaign.id, user.id) : [];
+  const bunny = await getBunnyState(sql, user.id, settings);
   const wins = await sql<{
     id: string;
     prize_type: PrizeType;
     won_at: Date | string;
     wallet_address: string | null;
     wallet_submitted_at: Date | string | null;
-    source: "wheel" | "shop";
+    source: "wheel" | "shop" | "bunny";
     shop_spot_type: ShopSpotType | null;
+    bunny_reward_type: BunnyRewardType | null;
   }[]>`
     select wins.id, wins.prize_type, wins.won_at, wins.wallet_address, wins.wallet_submitted_at,
-      wins.source, purchases.spot_type as shop_spot_type
+      wins.source, purchases.spot_type as shop_spot_type,
+      trades.reward_type as bunny_reward_type
     from spin_wins wins
     left join spin_shop_purchases purchases on purchases.id = wins.shop_purchase_id
+    left join spin_bunny_trades trades on trades.id = wins.bunny_trade_id
     where wins.user_id = ${user.id}::uuid
     order by wins.won_at desc
   `;
@@ -699,7 +704,7 @@ export async function getWheelState(user: SpinUser | null, knownStorage?: Storag
       spinsEarned: Number(current.referral_spins_earned),
     },
     community,
-    campaign: publicCampaign(campaign),
+    campaign: publicCampaign(campaign, settings),
     wheelAvailable: Boolean(prizeCampaign),
     walletChangesAllowed: settings.allowWalletChanges,
     walletSubmissionsAllowed: settings.allowWalletSubmissions,
@@ -718,6 +723,7 @@ export async function getWheelState(user: SpinUser | null, knownStorage?: Storag
       pointsAwarded: Number(postTasks[0].points_awarded),
       verifiedAt: new Date(postTasks[0].verified_at).toISOString(),
     } : { completed: false },
+    bunny,
     shop,
     wins: wins.map((win) => ({
       id: win.id,
@@ -727,17 +733,19 @@ export async function getWheelState(user: SpinUser | null, knownStorage?: Storag
       walletSubmittedAt: win.wallet_submitted_at ? new Date(win.wallet_submitted_at).toISOString() : null,
       source: win.source,
       shopSpotType: win.shop_spot_type,
+      bunnyRewardType: win.bunny_reward_type,
     })),
   };
 }
 
-function publicCampaign(campaign: CampaignRow | null) {
+function publicCampaign(campaign: CampaignRow | null, settings: SpinSettings) {
   return campaign ? {
     id: campaign.id,
     title: campaign.title,
     roundNumber: Number(campaign.round_number),
     tweetUrl: campaign.tweet_url,
-    shopPostText: campaign.shop_post_text,
+    shopPostText: settings.postTaskText,
+    postTaskRequiresTag: settings.postTaskRequiresTag,
     startsAt: new Date(campaign.starts_at).toISOString(),
     endsAt: new Date(campaign.ends_at).toISOString(),
   } : null;

@@ -11,6 +11,7 @@ import {
 import { enforceRateLimit } from "./rate-limit";
 import { ensureProductionSchema } from "./schema";
 import { hashRedeemCode } from "./security";
+import { getSpinSettings } from "./settings";
 import type { SpinUserRow } from "./users";
 
 export type TaskType = CompactTaskType;
@@ -307,6 +308,7 @@ export async function publishCampaign(input: {
   startNewCampaign?: boolean;
 }) {
   await ensureProductionSchema();
+  const engagementSettings = await getSpinSettings();
   const title = input.title.trim().slice(0, 80) || "Bunny Hood Drop";
   const tweetUrl = input.tweetUrl.trim();
   const tweetId = extractTweetId(tweetUrl);
@@ -314,8 +316,8 @@ export async function publishCampaign(input: {
   if (code.length < 4 || code.length > 64) {
     throw new HttpError(400, "Redeem code must be 4–64 characters.", "BAD_CODE");
   }
-  const rawShopPostText = (input.shopPostText ?? "").trim();
-  const taggedShopPostText = /(^|\s)@BunnysHood\b/i.test(rawShopPostText)
+  const rawShopPostText = (input.shopPostText ?? engagementSettings.postTaskText).trim();
+  const taggedShopPostText = !engagementSettings.postTaskRequiresTag || /(^|\s)@BunnysHood\b/i.test(rawShopPostText)
     ? rawShopPostText
     : `${rawShopPostText || "I am earning my way into the Bunny Hood."} @BunnysHood`;
   const shopPostText = taggedShopPostText.slice(0, 260);

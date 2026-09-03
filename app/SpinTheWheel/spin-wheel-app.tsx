@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { FormEvent, type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FeedTheBunny, type BunnyUiState } from "./feed-the-bunny";
 
 type TaskType = "follow" | "like" | "repost" | "comment" | "notifications";
 type PrizeType = "GTD" | "FCFS1" | "FCFS2";
@@ -40,6 +41,7 @@ type WheelState = {
     roundNumber: number;
     tweetUrl: string;
     shopPostText: string;
+    postTaskRequiresTag: boolean;
     startsAt: string;
     endsAt: string;
   };
@@ -47,6 +49,7 @@ type WheelState = {
   taskStarts?: Array<{ taskType: TaskType; readyAt: string; waitMs: number }>;
   codeRedemption?: null | { awardedSpins: number };
   postTask?: { completed: boolean; postUrl?: string; pointsAwarded?: number; verifiedAt?: string };
+  bunny?: BunnyUiState;
   shop?: Array<{
     spotType: ShopSpotType;
     pointsPrice: number;
@@ -62,8 +65,9 @@ type WheelState = {
     wonAt: string;
     wallet: string | null;
     walletSubmittedAt: string | null;
-    source: "wheel" | "shop";
+    source: "wheel" | "shop" | "bunny";
     shopSpotType: ShopSpotType | null;
+    bunnyRewardType: ShopSpotType | null;
   }>;
 };
 
@@ -256,7 +260,11 @@ export function SpinWheelApp() {
   const [postTaskBusy, setPostTaskBusy] = useState(false);
   const [shopBusy, setShopBusy] = useState<ShopSpotType | null>(null);
   const [shopCelebration, setShopCelebration] = useState<{ spotType: ShopSpotType; pointsSpent: number } | null>(null);
+  const [bunnyBusy, setBunnyBusy] = useState<"feed" | ShopSpotType | null>(null);
+  const [bunnyAnimating, setBunnyAnimating] = useState(false);
+  const [bunnyCelebration, setBunnyCelebration] = useState<ShopSpotType | null>(null);
   const revealTimer = useRef<number | null>(null);
+  const bunnyAnimationTimer = useRef<number | null>(null);
   const pendingOutcome = useRef<SpinOutcome | null>(null);
   const skipRequested = useRef(false);
   const taskTimers = useRef<Partial<Record<TaskType, TaskTimer>>>({});
@@ -284,6 +292,7 @@ export function SpinWheelApp() {
     return () => {
       window.clearTimeout(initialLoad);
       if (revealTimer.current) window.clearTimeout(revealTimer.current);
+      if (bunnyAnimationTimer.current) window.clearTimeout(bunnyAnimationTimer.current);
       for (const timer of Object.values(timers)) {
         if (!timer) continue;
         window.clearInterval(timer.intervalId);
@@ -297,6 +306,13 @@ export function SpinWheelApp() {
     const messageTimer = window.setTimeout(() => setMessage(""), 5_000);
     return () => window.clearTimeout(messageTimer);
   }, [message]);
+
+  useEffect(() => {
+    if (!state?.bunny?.nextFeedAt) return;
+    const delay = Math.max(500, new Date(state.bunny.nextFeedAt).getTime() - Date.now() + 500);
+    const utcResetTimer = window.setTimeout(() => void loadState(), delay);
+    return () => window.clearTimeout(utcResetTimer);
+  }, [loadState, state?.bunny?.nextFeedAt]);
 
   const claimed = useMemo(() => new Set(state?.claimedTasks ?? []), [state?.claimedTasks]);
   const referralLink = state?.referral?.code
@@ -463,6 +479,51 @@ export function SpinWheelApp() {
       await loadState();
     } finally {
       setShopBusy(null);
+    }
+  }
+
+  async function feedBunny() {
+    if (!state?.bunny || !state.bunny.canFeed || state.user!.points < state.bunny.carrotCost || bunnyBusy) return;
+    setBunnyBusy("feed");
+    setBunnyAnimating(true);
+    setMessage("");
+    try {
+      const reply = await requestJson<{ bunny: BunnyUiState; pointsSpent: number }>("/api/spin/bunny/feed", {
+        method: "POST",
+        body: JSON.stringify({ idempotencyKey: crypto.randomUUID() }),
+      });
+      setMessage(reply.bunny.tradeReady
+        ? "Your Bunny is fully evolved. GTD and FCFS trading is now unlocked."
+        : `Carrot delivered. Day ${reply.bunny.streakDays} of the streak is complete.`);
+      await loadState();
+      if (bunnyAnimationTimer.current) window.clearTimeout(bunnyAnimationTimer.current);
+      bunnyAnimationTimer.current = window.setTimeout(() => setBunnyAnimating(false), 1_900);
+    } catch (error) {
+      setBunnyAnimating(false);
+      setMessage(error instanceof Error ? error.message : "The Bunny could not be fed.");
+      await loadState();
+    } finally {
+      setBunnyBusy(null);
+    }
+  }
+
+  async function tradeBunny(rewardType: ShopSpotType) {
+    if (!state?.bunny?.tradeReady || bunnyBusy) return;
+    if (!window.confirm(`Trade this evolved Bunny for ${rewardType}? This begins a new Bunny cycle.`)) return;
+    setBunnyBusy(rewardType);
+    setMessage("");
+    try {
+      const reply = await requestJson<{ rewardType: ShopSpotType }>("/api/spin/bunny/trade", {
+        method: "POST",
+        body: JSON.stringify({ rewardType, idempotencyKey: crypto.randomUUID() }),
+      });
+      setBunnyCelebration(reply.rewardType);
+      await loadState();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "The evolved Bunny could not be traded.");
+      await loadState();
+    } finally {
+      setBunnyBusy(null);
     }
   }
 
@@ -683,12 +744,14 @@ export function SpinWheelApp() {
                     </article>
                   ))}
                   <article className={`post-point-task ${state.postTask?.completed ? "claimed" : ""}`}>
-                    <div><span>06 · CREATE</span><h3>Post for the Hood</h3><p>Create a public X post from @{state.user.xUsername}, tag @BunnysHood, and earn 3 points for this round.</p></div>
+                    <div><span>06 · CREATE</span><h3>Post for the Hood</h3><p>Create a public X post from @{state.user.xUsername}{state.campaign.postTaskRequiresTag ? ", tag @BunnysHood," : ""} and earn 3 points for this round.</p></div>
                     {state.postTask?.completed ? <div className="spin-task-actions"><a href={state.postTask.postUrl} target="_blank" rel="noreferrer">Verified · +3 points</a></div> : <div className="post-task-controls"><a className="create-post-button" href={xShareUrl(state.campaign.shopPostText, "")} target="_blank" rel="noreferrer">Create post on X</a><form onSubmit={submitPostTask}><label htmlFor="spin-post-url">Paste your published post URL</label><div><input id="spin-post-url" type="url" value={postUrl} onChange={(event) => setPostUrl(event.target.value)} placeholder="https://x.com/you/status/..." required /><button disabled={postTaskBusy}>{postTaskBusy ? "Verifying…" : "Verify +3"}</button></div></form></div>}
                   </article>
                 </div>
               </section>
             )}
+
+            {state.bunny && <FeedTheBunny bunny={state.bunny} points={state.user.points} roleWins={state.user.roleWins} busy={bunnyBusy} animating={bunnyAnimating} onFeed={feedBunny} onTrade={tradeBunny} />}
 
             {state.campaign && (
               <section className="hood-shop" id="hood-shop">
@@ -782,7 +845,7 @@ export function SpinWheelApp() {
                 {state.wins?.map((win, index) => (
                   <article key={win.id}>
                     <div className="win-number">{String(state.wins!.length - index).padStart(2, "0")}</div>
-                    <div><span>{new Date(win.wonAt).toLocaleString()} · {win.source === "shop" ? "POINTS SHOP" : "WHEEL"}</span><h3>{win.shopSpotType ?? win.prizeType}</h3><a className="win-share-link" href={winShareHref(win.prizeType)} target="_blank" rel="noreferrer">Share on X</a></div>
+                    <div><span>{new Date(win.wonAt).toLocaleString()} · {win.source === "shop" ? "POINTS SHOP" : win.source === "bunny" ? "BUNNY TRADE" : "WHEEL"}</span><h3>{win.bunnyRewardType ?? win.shopSpotType ?? win.prizeType}</h3><a className="win-share-link" href={winShareHref(win.prizeType)} target="_blank" rel="noreferrer">Share on X</a></div>
                     {win.wallet ? (
                       <div className="wallet-entry">
                         <div className="locked-wallet"><span>{state.walletSubmissionsAllowed && state.walletChangesAllowed ? "CURRENT WALLET" : "LOCKED WALLET"}</span><strong>{win.wallet.slice(0, 8)}…{win.wallet.slice(-6)}</strong><small>{!state.walletSubmissionsAllowed ? "Wallet submissions paused by admin" : state.walletChangesAllowed ? "Admin currently allows changes" : "Changes disabled by admin"}</small></div>
@@ -821,6 +884,7 @@ export function SpinWheelApp() {
         {message && <div className="spin-message" role="status">{message}</div>}
       </section>
       {shopCelebration && <div className="shop-celebration" role="dialog" aria-modal="true" aria-label={`${shopCelebration.spotType} secured`}><div className="shop-confetti" aria-hidden="true">{Array.from({ length: 18 }, (_, index) => <i key={index} style={{ "--confetti": index } as CSSProperties} />)}</div><div className="shop-celebration-ring"><span>BH</span></div><p>ACCESS ACQUIRED</p><h2>{shopCelebration.spotType}<br /><em>SECURED.</em></h2><strong>{shopCelebration.pointsSpent} POINTS USED</strong><small>Your permanent win is saved. Add its receiving wallet in your Hood profile.</small><button type="button" onClick={() => { setShopCelebration(null); document.getElementById("spin-profile")?.scrollIntoView({ behavior: "smooth" }); }}>Add receiving wallet</button></div>}
+      {bunnyCelebration && <div className="shop-celebration bunny-trade-celebration" role="dialog" aria-modal="true" aria-label={`${bunnyCelebration} Bunny trade complete`}><div className="shop-confetti" aria-hidden="true">{Array.from({ length: 18 }, (_, index) => <i key={index} style={{ "--confetti": index } as CSSProperties} />)}</div><div className="shop-celebration-ring"><span>BH</span></div><p>EVOLUTION TRADED</p><h2>{bunnyCelebration}<br /><em>IS YOURS.</em></h2><strong>NEW BUNNY CYCLE UNLOCKED</strong><small>Your permanent win is saved. Add its receiving wallet in your Hood profile.</small><button type="button" onClick={() => { setBunnyCelebration(null); document.getElementById("spin-profile")?.scrollIntoView({ behavior: "smooth" }); }}>Add receiving wallet</button></div>}
     </>
   );
 }

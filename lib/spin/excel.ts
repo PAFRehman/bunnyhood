@@ -41,6 +41,7 @@ type WinExportRow = {
   prize_type: string;
   source: string;
   shop_spot_type: string | null;
+  bunny_reward_type: string | null;
   won_at: Date | string;
   wallet_address: string | null;
   wallet_submitted_at: Date | string | null;
@@ -228,10 +229,12 @@ export async function buildBunnyHoodWorkbook() {
   const wins = await sql<WinExportRow[]>`
     select wins.id, wins.user_id, users.x_user_id, users.x_username, users.x_name,
       wins.prize_type, wins.source, purchases.spot_type as shop_spot_type,
+      trades.reward_type as bunny_reward_type,
       wins.won_at, wins.wallet_address, wins.wallet_submitted_at
     from spin_wins wins
     join spin_users users on users.id = wins.user_id
     left join spin_shop_purchases purchases on purchases.id = wins.shop_purchase_id
+    left join spin_bunny_trades trades on trades.id = wins.bunny_trade_id
     order by wins.won_at desc, wins.id
   `;
   for (const win of wins) {
@@ -241,7 +244,7 @@ export async function buildBunnyHoodWorkbook() {
       xUserId: safeText(win.x_user_id),
       xUsername: safeText(win.x_username),
       xName: safeText(win.x_name),
-      role: win.shop_spot_type ?? win.prize_type,
+      role: win.bunny_reward_type ?? win.shop_spot_type ?? win.prize_type,
       source: win.source.toUpperCase(),
       wonAt: new Date(win.won_at).toISOString(),
       walletStatus: win.wallet_address ? "SUBMITTED" : "WAITING",
