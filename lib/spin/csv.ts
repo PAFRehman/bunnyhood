@@ -95,23 +95,26 @@ async function writeWins(output: PassThrough) {
     prize_type: string;
     source: string;
     shop_spot_type: string | null;
+    bunny_reward_type: string | null;
     won_at: Date | string;
     wallet_address: string | null;
     wallet_submitted_at: Date | string | null;
   }[]>`
     select wins.id, wins.user_id, users.x_user_id, users.x_username, users.x_name,
       wins.prize_type, wins.source, purchases.spot_type as shop_spot_type,
+      trades.reward_type as bunny_reward_type,
       wins.won_at, wins.wallet_address, wins.wallet_submitted_at
     from spin_wins wins
     join spin_users users on users.id = wins.user_id
     left join spin_shop_purchases purchases on purchases.id = wins.shop_purchase_id
+    left join spin_bunny_trades trades on trades.id = wins.bunny_trade_id
     order by wins.won_at desc, wins.id
   `.cursor(CURSOR_ROWS);
   for await (const rows of cursor) {
     for (const row of rows) {
       await write(output, csvLine([
         row.id, row.user_id, row.x_user_id, row.x_username, row.x_name,
-        row.shop_spot_type ?? row.prize_type, row.source.toUpperCase(), new Date(row.won_at).toISOString(),
+        row.bunny_reward_type ?? row.shop_spot_type ?? row.prize_type, row.source.toUpperCase(), new Date(row.won_at).toISOString(),
         row.wallet_address ? "SUBMITTED" : "WAITING", row.wallet_address,
         row.wallet_submitted_at ? new Date(row.wallet_submitted_at).toISOString() : "",
       ]));

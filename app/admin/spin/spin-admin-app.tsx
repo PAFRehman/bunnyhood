@@ -40,7 +40,22 @@ type Dashboard = {
   };
   inventory: Array<{ prizeType: PrizeType; claimed: number; total: number }>;
   shop: Array<{ spotType: "GTD" | "FCFS"; pointsPrice: number; totalCount: number; purchasedCount: number; remaining: number }>;
-  settings: { allowWalletChanges: boolean; allowWalletSubmissions: boolean };
+  settings: {
+    allowWalletChanges: boolean;
+    allowWalletSubmissions: boolean;
+    postTaskText: string;
+    postTaskRequiresTag: boolean;
+    bunnyStreakDays: number;
+  };
+  bunny: {
+    totalFeeds: number;
+    fedToday: number;
+    tradeReady: number;
+    totalTrades: number;
+    gtdTrades: number;
+    fcfsTrades: number;
+    longestStreak: number;
+  };
   storage: {
     databaseBytes: number;
     safetyLimitBytes: number;
@@ -118,8 +133,9 @@ type WinRecord = {
   wallet: string | null;
   walletSubmittedAt: string | null;
   walletStatus: "submitted" | "waiting";
-  source: "wheel" | "shop";
+  source: "wheel" | "shop" | "bunny";
   shopSpotType: "GTD" | "FCFS" | null;
+  bunnyRewardType: "GTD" | "FCFS" | null;
 };
 
 type ReferralRecord = {
@@ -191,6 +207,9 @@ export function SpinAdminApp() {
   const [fcfs1Count, setFcfs1Count] = useState("20");
   const [fcfs2Count, setFcfs2Count] = useState("30");
   const [shopPostText, setShopPostText] = useState("I am earning my way into the Bunny Hood. @BunnysHood");
+  const [postTaskRequiresTag, setPostTaskRequiresTag] = useState(true);
+  const [bunnyStreakDays, setBunnyStreakDays] = useState("7");
+  const [engagementBusy, setEngagementBusy] = useState(false);
   const [gtdShopPrice, setGtdShopPrice] = useState("100");
   const [gtdShopPool, setGtdShopPool] = useState("0");
   const [fcfsShopPrice, setFcfsShopPrice] = useState("50");
@@ -208,14 +227,20 @@ export function SpinAdminApp() {
   const [settingsBusy, setSettingsBusy] = useState<"changes" | "submissions" | null>(null);
   const [message, setMessage] = useState("");
   const loadedShopCampaign = useRef<string | null>(null);
+  const loadedEngagementSettings = useRef(false);
 
   const loadDashboard = useCallback(async () => {
     try {
       const data = await adminRequest<Dashboard>("/api/admin/spin/dashboard");
       setDashboard(data);
+      if (!loadedEngagementSettings.current) {
+        loadedEngagementSettings.current = true;
+        setShopPostText(data.settings.postTaskText);
+        setPostTaskRequiresTag(data.settings.postTaskRequiresTag);
+        setBunnyStreakDays(String(data.settings.bunnyStreakDays));
+      }
       if (data.campaign && loadedShopCampaign.current !== data.campaign.id) {
         loadedShopCampaign.current = data.campaign.id;
-        setShopPostText(data.campaign.shopPostText);
         const gtd = data.shop.find((item) => item.spotType === "GTD");
         const fcfs = data.shop.find((item) => item.spotType === "FCFS");
         if (gtd) {
@@ -360,6 +385,31 @@ export function SpinAdminApp() {
     }
   }
 
+  async function saveEngagementSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setEngagementBusy(true);
+    setMessage("");
+    try {
+      const response = await adminRequest<{ settings: Dashboard["settings"] }>("/api/admin/spin/engagement-settings", {
+        method: "POST",
+        body: JSON.stringify({
+          postTaskText: shopPostText,
+          postTaskRequiresTag,
+          bunnyStreakDays: Number(bunnyStreakDays),
+        }),
+      });
+      setShopPostText(response.settings.postTaskText);
+      setPostTaskRequiresTag(response.settings.postTaskRequiresTag);
+      setBunnyStreakDays(String(response.settings.bunnyStreakDays));
+      setMessage("Daily post and Bunny evolution settings are live.");
+      await loadDashboard();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Engagement settings could not be saved.");
+    } finally {
+      setEngagementBusy(false);
+    }
+  }
+
   async function logout() {
     await adminRequest("/api/admin/spin/logout", { method: "POST", body: "{}" }).catch(() => undefined);
     setDashboard(null);
@@ -483,6 +533,29 @@ export function SpinAdminApp() {
           <section className="admin-panel"><p className="section-kicker">PERMANENT ROLE LEDGER</p><h2>{formatNumber(dashboard.totals.wins)} wins stored</h2><div className="admin-role-ledger"><div><span>GTD</span><strong>{formatNumber(dashboard.totals.roleWins.GTD)}</strong></div><div><span>FCFS1</span><strong>{formatNumber(dashboard.totals.roleWins.FCFS1)}</strong></div><div><span>FCFS2</span><strong>{formatNumber(dashboard.totals.roleWins.FCFS2)}</strong></div></div><p className="admin-note">Role ownership is read from permanent win rows, not temporary wheel animation data.</p></section>
         </div>
 
+        <section className="admin-panel admin-engagement-control">
+          <div className="admin-panel-heading">
+            <div><p className="section-kicker">DAILY ENGAGEMENT SETTINGS</p><h2>Posts, carrots &amp; evolution.</h2><p className="admin-note">These controls update immediately without publishing a new campaign round. Carrots always cost 3 points and each connected user can feed once per UTC day.</p></div>
+            <span>RESET · 00:00 UTC</span>
+          </div>
+          <div className="admin-engagement-layout">
+            <form onSubmit={saveEngagementSettings}>
+              <div className="admin-field"><label htmlFor="shop-post-text">Default verified X post</label><textarea id="shop-post-text" value={shopPostText} onChange={(event) => setShopPostText(event.target.value)} maxLength={260} rows={5} required /><small>{shopPostText.length}/260 characters · This text opens in the user&apos;s X composer. A verified post still must come from the X account connected to Spin the Wheel.</small></div>
+              <label className="admin-new-campaign-toggle"><input type="checkbox" checked={postTaskRequiresTag} onChange={(event) => setPostTaskRequiresTag(event.target.checked)} /><span><strong>Require the @BunnysHood tag</strong><small>When enabled, the tag is appended to your saved text if omitted and must be present in the submitted public post. Turn this off to make the tag optional.</small></span></label>
+              <div className="admin-field"><label htmlFor="bunny-streak-days">Consecutive feed days to evolve</label><input id="bunny-streak-days" type="number" min="1" max="365" value={bunnyStreakDays} onChange={(event) => setBunnyStreakDays(event.target.value)} required /><small>At this streak the Bunny can be exchanged for either GTD or FCFS. The exchange creates a permanent wallet-ready win and begins a new Bunny cycle.</small></div>
+              <button className="admin-submit" disabled={engagementBusy}>{engagementBusy ? "Saving…" : "Save engagement settings"}</button>
+            </form>
+            <aside className="admin-bunny-stats">
+              <div><span>CARROTS FED · ALL TIME</span><strong>{formatNumber(dashboard.bunny.totalFeeds)}</strong></div>
+              <div><span>FED TODAY · UTC</span><strong>{formatNumber(dashboard.bunny.fedToday)}</strong></div>
+              <div><span>READY TO TRADE</span><strong>{formatNumber(dashboard.bunny.tradeReady)}</strong></div>
+              <div><span>COMPLETED TRADES</span><strong>{formatNumber(dashboard.bunny.totalTrades)}</strong></div>
+              <div><span>GTD / FCFS TRADES</span><strong>{formatNumber(dashboard.bunny.gtdTrades)} / {formatNumber(dashboard.bunny.fcfsTrades)}</strong></div>
+              <div><span>LONGEST STREAK</span><strong>{formatNumber(dashboard.bunny.longestStreak)}D</strong></div>
+            </aside>
+          </div>
+        </section>
+
         <section className="admin-panel admin-shop-control">
           <div className="admin-panel-heading"><div><p className="section-kicker">CAMPAIGN POINTS SHOP</p><h2>Price the access.</h2><p className="admin-note">Pool totals can be raised at any time. They cannot be lowered below completed purchases. A zero pool keeps that product closed.</p></div><span>{dashboard.campaign ? `ROUND ${dashboard.campaign.roundNumber}` : "NO LIVE CAMPAIGN"}</span></div>
           <form className="admin-shop-form" onSubmit={saveShop}>
@@ -505,7 +578,7 @@ export function SpinAdminApp() {
         <div className="admin-grid">
           <section className="admin-panel"><h2>Current campaign</h2>{dashboard.campaign ? <div className="admin-campaign-data"><div><span>Title</span><strong>{dashboard.campaign.title}</strong></div><div><span>Tweet</span><strong>{dashboard.campaign.tweetUrl.replace(/^https:\/\//, "")}</strong></div><div><span>Expected unique users</span><strong>{formatNumber(dashboard.campaign.expectedUsers)}</strong></div><div><span>Expected spins per user</span><strong>{formatNumber(dashboard.campaign.expectedSpinsPerUser)}</strong></div><div><span>Unique draw entrants</span><strong>{formatNumber(dashboard.campaign.participantsSeen)}</strong></div><div><span>Unique winners selected</span><strong>{formatNumber(dashboard.campaign.winnersSelected)}</strong></div><div><span>Permanent attempts counter</span><strong>{formatNumber(dashboard.campaign.spinsProcessed)}</strong></div><div><span>Current daily round</span><strong>#{dashboard.campaign.roundNumber}</strong></div><div><span>Ends</span><strong>{new Date(dashboard.campaign.endsAt).toLocaleString()}</strong></div>{dashboard.inventory.map((item) => <div key={item.prizeType}><span>{item.prizeType}</span><strong>{formatNumber(item.claimed)} / {formatNumber(item.total)} claimed</strong></div>)}</div> : <p className="admin-note">No live campaign. Publish one using the form.</p>}<p className="admin-note">Daily tweet/code updates preserve every user balance and this campaign&apos;s private prize pool. Prize totals remain visible only here.</p></section>
           <section className="admin-panel"><h2>Publish campaign update</h2><form onSubmit={publish}>
-            <div className="admin-field"><label htmlFor="campaign-title">Campaign title</label><input id="campaign-title" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={80} required /></div><div className="admin-field"><label htmlFor="campaign-tweet">Full X post URL</label><input id="campaign-tweet" type="url" value={tweetUrl} onChange={(event) => setTweetUrl(event.target.value)} placeholder="https://x.com/BunnysHood/status/..." required /></div><div className="admin-field"><label htmlFor="campaign-code">New redeem code</label><input id="campaign-code" value={redeemCode} onChange={(event) => setRedeemCode(event.target.value)} minLength={4} maxLength={64} placeholder="BUNNY-XXXX" required autoComplete="off" /></div><div className="admin-field"><label htmlFor="shop-post-text">Daily create-post text</label><textarea id="shop-post-text" value={shopPostText} onChange={(event) => setShopPostText(event.target.value)} maxLength={260} rows={4} required /><small>@BunnysHood is added automatically if omitted. Users may complete this verified +3 point task once per daily round.</small></div>
+            <div className="admin-field"><label htmlFor="campaign-title">Campaign title</label><input id="campaign-title" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={80} required /></div><div className="admin-field"><label htmlFor="campaign-tweet">Full X post URL</label><input id="campaign-tweet" type="url" value={tweetUrl} onChange={(event) => setTweetUrl(event.target.value)} placeholder="https://x.com/BunnysHood/status/..." required /></div><div className="admin-field"><label htmlFor="campaign-code">New redeem code</label><input id="campaign-code" value={redeemCode} onChange={(event) => setRedeemCode(event.target.value)} minLength={4} maxLength={64} placeholder="BUNNY-XXXX" required autoComplete="off" /></div>
             {dashboard.campaign && <label className="admin-new-campaign-toggle"><input type="checkbox" checked={startNewCampaign} onChange={(event) => setStartNewCampaign(event.target.checked)} /><span><strong>Start a completely new 20-day campaign</strong><small>Leave off for a daily tweet/code update. A new pool never resets users, points, referrals, balances, or past wins.</small></span></label>}
             <div className="admin-field"><label htmlFor="campaign-users">Expected unique users</label><input id="campaign-users" type="number" min="10" max="1000000" value={expectedUsers} onChange={(event) => setExpectedUsers(event.target.value)} disabled={Boolean(dashboard.campaign) && !startNewCampaign} required /></div><div className="admin-prize-grid"><div className="admin-field"><label htmlFor="campaign-gtd">Total GTD</label><input id="campaign-gtd" type="number" min="1" max="100000" value={gtdCount} onChange={(event) => setGtdCount(event.target.value)} disabled={Boolean(dashboard.campaign) && !startNewCampaign} required /></div><div className="admin-field"><label htmlFor="campaign-fcfs1">Total FCFS1</label><input id="campaign-fcfs1" type="number" min="1" max="100000" value={fcfs1Count} onChange={(event) => setFcfs1Count(event.target.value)} disabled={Boolean(dashboard.campaign) && !startNewCampaign} required /></div><div className="admin-field"><label htmlFor="campaign-fcfs2">Total FCFS2</label><input id="campaign-fcfs2" type="number" min="1" max="100000" value={fcfs2Count} onChange={(event) => setFcfs2Count(event.target.value)} disabled={Boolean(dashboard.campaign) && !startNewCampaign} required /></div></div><p className="admin-note">Private unique-winner target: <strong>{formatNumber(Number(gtdCount || 0) + Number(fcfs1Count || 0) + Number(fcfs2Count || 0))}</strong>. Across the expected unique users, the draw fills exactly these role totals. Public pages never display inventory numbers.</p><div className="admin-field"><label htmlFor="campaign-end">Optional end time (new campaigns default to 20 days)</label><input id="campaign-end" type="datetime-local" value={endsAt} onChange={(event) => setEndsAt(event.target.value)} disabled={Boolean(dashboard.campaign) && !startNewCampaign} /></div><button className="admin-submit" disabled={busy}>{busy ? "Publishing…" : dashboard.campaign && !startNewCampaign ? "Publish daily update" : "Start 20-day campaign"}</button>
           </form></section>
@@ -518,7 +591,7 @@ export function SpinAdminApp() {
           <div className="admin-record-toolbar"><div className="admin-record-tabs">{(["users", "wins", "referrals"] as RecordView[]).map((view) => <button className={recordView === view ? "active" : ""} type="button" key={view} onClick={() => changeRecordView(view)}>{view}</button>)}</div><form onSubmit={searchRecords}><input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder={recordView === "wins" ? "Search username, wallet or role" : "Search username, X ID or code"} /><button type="submit">Search</button></form></div>
           <div className={`admin-table-wrap ${recordsBusy ? "loading" : ""}`}>
             {recordView === "users" && <table className="admin-data-table"><thead><tr><th>User</th><th>X ID</th><th>Available pts</th><th>Earned pts</th><th>Spent pts</th><th>Spins earned</th><th>Spins left</th><th>Used</th><th>Roles</th><th>Referrals</th><th>Last seen</th></tr></thead><tbody>{(records?.rows as UserRecord[] | undefined)?.map((user) => <tr key={user.id}><td><strong>@{user.xUsername}</strong><small>{user.xName}</small></td><td>{user.xUserId}</td><td><strong>{formatNumber(user.pointsAvailable)}</strong></td><td>{formatNumber(user.points)}</td><td>{formatNumber(user.pointsSpent)}</td><td>{formatNumber(user.spinsEarned)}</td><td>{formatNumber(user.spinsAvailable)}</td><td>{formatNumber(user.spinsUsed)}</td><td>G {user.roleWins.GTD} · F1 {user.roleWins.FCFS1} · F2 {user.roleWins.FCFS2}</td><td>{formatNumber(user.referralCount)}<small>{user.referralCode || "—"}</small></td><td>{formatDate(user.lastSeenAt)}</td></tr>)}</tbody></table>}
-            {recordView === "wins" && <table className="admin-data-table"><thead><tr><th>Winner</th><th>Role</th><th>Source</th><th>Won at</th><th>Wallet status</th><th>Wallet</th><th>Submitted at</th></tr></thead><tbody>{(records?.rows as WinRecord[] | undefined)?.map((win) => <tr key={win.id}><td><strong>@{win.xUsername}</strong><small>{win.xUserId}</small></td><td><strong className="role-value">{win.shopSpotType ?? win.prizeType}</strong></td><td>{win.source === "shop" ? "POINTS SHOP" : "WHEEL"}</td><td>{formatDate(win.wonAt)}</td><td><span className={`admin-status ${win.walletStatus}`}>{win.walletStatus}</span></td><td className="wallet-cell">{win.wallet || "—"}</td><td>{formatDate(win.walletSubmittedAt)}</td></tr>)}</tbody></table>}
+            {recordView === "wins" && <table className="admin-data-table"><thead><tr><th>Winner</th><th>Role</th><th>Source</th><th>Won at</th><th>Wallet status</th><th>Wallet</th><th>Submitted at</th></tr></thead><tbody>{(records?.rows as WinRecord[] | undefined)?.map((win) => <tr key={win.id}><td><strong>@{win.xUsername}</strong><small>{win.xUserId}</small></td><td><strong className="role-value">{win.bunnyRewardType ?? win.shopSpotType ?? win.prizeType}</strong></td><td>{win.source === "shop" ? "POINTS SHOP" : win.source === "bunny" ? "BUNNY TRADE" : "WHEEL"}</td><td>{formatDate(win.wonAt)}</td><td><span className={`admin-status ${win.walletStatus}`}>{win.walletStatus}</span></td><td className="wallet-cell">{win.wallet || "—"}</td><td>{formatDate(win.walletSubmittedAt)}</td></tr>)}</tbody></table>}
             {recordView === "referrals" && <table className="admin-data-table"><thead><tr><th>Referrer</th><th>New user</th><th>Code</th><th>Spins</th><th>Created at</th></tr></thead><tbody>{(records?.rows as ReferralRecord[] | undefined)?.map((referral) => <tr key={referral.id}><td><strong>@{referral.referrerUsername}</strong><small>{referral.referrerXUserId}</small></td><td><strong>@{referral.referredUsername}</strong><small>{referral.referredXUserId}</small></td><td>{referral.referralCode}</td><td>+{referral.awardedSpins}</td><td>{formatDate(referral.createdAt)}</td></tr>)}</tbody></table>}
             {!recordsBusy && records?.rows.length === 0 && <div className="admin-empty">No matching {recordView} found.</div>}
           </div>

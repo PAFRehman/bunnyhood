@@ -8,6 +8,7 @@ import { getDb, inTransaction } from "./db";
 import { HttpError } from "./http";
 import { enforceRateLimit } from "./rate-limit";
 import { ensureProductionSchema } from "./schema";
+import { getSpinSettings } from "./settings";
 
 export type ShopSpotType = "GTD" | "FCFS";
 
@@ -264,12 +265,12 @@ export async function submitShopPostTask(user: SpinUser, rawPostUrl: string) {
   if (!xUsername || xUsername !== user.xUsername.toLowerCase()) {
     throw new HttpError(400, `Submit a public post created by your connected @${user.xUsername} account.`, "X_AUTHOR_MISMATCH");
   }
-  if (!(data.html ?? "").toLowerCase().includes("@bunnyshood")) {
-    throw new HttpError(400, "Your post must tag @BunnysHood.", "X_TAG_MISSING");
-  }
-
   return inTransaction(async (sql) => {
     await sql`select pg_advisory_xact_lock_shared(hashtext('bunny-hood-active-campaign'))`;
+    const liveSettings = await getSpinSettings(sql);
+    if (liveSettings.postTaskRequiresTag && !(data.html ?? "").toLowerCase().includes("@bunnyshood")) {
+      throw new HttpError(400, "Your post must tag @BunnysHood.", "X_TAG_MISSING");
+    }
     const campaign = await getActiveCampaign(sql);
     if (!campaign) throw new HttpError(409, "No campaign task is active right now.", "NO_CAMPAIGN");
     await sql`select id from spin_users where id = ${user.id}::uuid for update`;

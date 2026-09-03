@@ -25,7 +25,7 @@ export async function getAdminOverview() {
     getSpinSettings(sql),
   ]);
 
-  const [totals, inventory, draw, databaseSize, tableStats, retention, daily, integrity, topReferrers, shopItems, topPointUsers] = await Promise.all([
+  const [totals, inventory, draw, databaseSize, tableStats, retention, daily, integrity, topReferrers, shopItems, topPointUsers, bunnyStats] = await Promise.all([
     sql<{
       users: number;
       active_24h: number;
@@ -183,6 +183,32 @@ export async function getAdminOverview() {
       order by (points - points_spent) desc, points desc, created_at asc
       limit 100
     `,
+    sql<{
+      total_feeds: number | string;
+      fed_today: number;
+      trade_ready: number;
+      total_trades: number | string;
+      gtd_trades: number;
+      fcfs_trades: number;
+      longest_streak: number;
+    }[]>`
+      select
+        (select coalesce(sum(total_carrots), 0)::bigint from spin_bunny_profiles)::text as total_feeds,
+        count(*) filter (
+          where profiles.last_fed_day = (clock_timestamp() at time zone 'UTC')::date
+        )::int as fed_today,
+        count(*) filter (
+          where profiles.trade_ready or (
+            profiles.last_fed_day >= (clock_timestamp() at time zone 'UTC')::date - 1
+            and profiles.streak_days >= ${settings.bunnyStreakDays}
+          )
+        )::int as trade_ready,
+        (select count(*)::bigint from spin_bunny_trades)::text as total_trades,
+        (select count(*)::int from spin_bunny_trades where reward_type = 'GTD') as gtd_trades,
+        (select count(*)::int from spin_bunny_trades where reward_type = 'FCFS') as fcfs_trades,
+        coalesce(max(profiles.longest_streak), 0)::int as longest_streak
+      from spin_bunny_profiles profiles
+    `,
   ]);
 
   const total = totals[0];
@@ -192,7 +218,7 @@ export async function getAdminOverview() {
       id: campaign.id,
       title: campaign.title,
       tweetUrl: campaign.tweet_url,
-      shopPostText: campaign.shop_post_text,
+      shopPostText: settings.postTaskText,
       startsAt: new Date(campaign.starts_at).toISOString(),
       endsAt: new Date(campaign.ends_at).toISOString(),
       roundNumber: Number(campaign.round_number),
@@ -236,6 +262,15 @@ export async function getAdminOverview() {
       remaining: Math.max(0, Number(item.total_count) - Number(item.purchased_count)),
     })),
     settings,
+    bunny: {
+      totalFeeds: numeric(bunnyStats[0]?.total_feeds),
+      fedToday: numeric(bunnyStats[0]?.fed_today),
+      tradeReady: numeric(bunnyStats[0]?.trade_ready),
+      totalTrades: numeric(bunnyStats[0]?.total_trades),
+      gtdTrades: numeric(bunnyStats[0]?.gtd_trades),
+      fcfsTrades: numeric(bunnyStats[0]?.fcfs_trades),
+      longestStreak: numeric(bunnyStats[0]?.longest_streak),
+    },
     storage: {
       databaseBytes: numeric(databaseSize[0]?.bytes),
       safetyLimitBytes: STORAGE_SAFETY_LIMIT_BYTES,
@@ -409,15 +444,18 @@ export async function getAdminRecords(input: {
         won_at: Date | string;
         wallet_address: string | null;
         wallet_submitted_at: Date | string | null;
-        source: "wheel" | "shop";
+        source: "wheel" | "shop" | "bunny";
         shop_spot_type: "GTD" | "FCFS" | null;
+        bunny_reward_type: "GTD" | "FCFS" | null;
       }[]>`
         select wins.id, users.x_user_id, users.x_username, users.x_name,
           wins.prize_type, wins.won_at, wins.wallet_address, wins.wallet_submitted_at,
-          wins.source, purchases.spot_type as shop_spot_type
+          wins.source, purchases.spot_type as shop_spot_type,
+          trades.reward_type as bunny_reward_type
         from spin_wins wins
         join spin_users users on users.id = wins.user_id
         left join spin_shop_purchases purchases on purchases.id = wins.shop_purchase_id
+        left join spin_bunny_trades trades on trades.id = wins.bunny_trade_id
         where ${search} = ''
           or users.x_username ilike ${pattern}
           or users.x_user_id ilike ${pattern}
@@ -441,6 +479,7 @@ export async function getAdminRecords(input: {
         walletStatus: row.wallet_address ? "submitted" : "waiting",
         source: row.source,
         shopSpotType: row.shop_spot_type,
+        bunnyRewardType: row.bunny_reward_type,
       })),
     };
   }
