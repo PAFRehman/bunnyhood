@@ -5,6 +5,7 @@ import { FormEvent, type CSSProperties, useCallback, useEffect, useMemo, useRef,
 
 type TaskType = "follow" | "like" | "repost" | "comment" | "notifications";
 type PrizeType = "GTD" | "FCFS1" | "FCFS2";
+type ShopSpotType = "GTD" | "FCFS";
 type SpinResult = PrizeType | "NONE" | "REFUND";
 
 type WheelState = {
@@ -22,6 +23,8 @@ type WheelState = {
     spinsAvailable: number;
     spinsUsed: number;
     points: number;
+    pointsEarned: number;
+    pointsSpent: number;
     totalWins: number;
     roleWins: Record<PrizeType, number>;
   };
@@ -36,18 +39,31 @@ type WheelState = {
     title: string;
     roundNumber: number;
     tweetUrl: string;
+    shopPostText: string;
     startsAt: string;
     endsAt: string;
   };
   claimedTasks?: TaskType[];
   taskStarts?: Array<{ taskType: TaskType; readyAt: string; waitMs: number }>;
   codeRedemption?: null | { awardedSpins: number };
+  postTask?: { completed: boolean; postUrl?: string; pointsAwarded?: number; verifiedAt?: string };
+  shop?: Array<{
+    spotType: ShopSpotType;
+    pointsPrice: number;
+    totalCount: number;
+    purchasedCount: number;
+    remaining: number;
+    purchasedByUser: boolean;
+    winId: string | null;
+  }>;
   wins?: Array<{
     id: string;
     prizeType: PrizeType;
     wonAt: string;
     wallet: string | null;
     walletSubmittedAt: string | null;
+    source: "wheel" | "shop";
+    shopSpotType: ShopSpotType | null;
   }>;
 };
 
@@ -236,6 +252,10 @@ export function SpinWheelApp() {
   const [origin] = useState(() => typeof window === "undefined" ? "https://www.bunnyhood.xyz" : window.location.origin);
   const [referralCode, setReferralCode] = useState("");
   const [savingReferral, setSavingReferral] = useState(false);
+  const [postUrl, setPostUrl] = useState("");
+  const [postTaskBusy, setPostTaskBusy] = useState(false);
+  const [shopBusy, setShopBusy] = useState<ShopSpotType | null>(null);
+  const [shopCelebration, setShopCelebration] = useState<{ spotType: ShopSpotType; pointsSpent: number } | null>(null);
   const revealTimer = useRef<number | null>(null);
   const pendingOutcome = useRef<SpinOutcome | null>(null);
   const skipRequested = useRef(false);
@@ -405,6 +425,44 @@ export function SpinWheelApp() {
       setMessage(error instanceof Error ? error.message : "Code could not be redeemed.");
     } finally {
       setRedeeming(false);
+    }
+  }
+
+  async function submitPostTask(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPostTaskBusy(true);
+    setMessage("");
+    try {
+      const reply = await requestJson<{ alreadyCompleted: boolean; pointsAwarded: number }>("/api/spin/post-task", {
+        method: "POST",
+        body: JSON.stringify({ postUrl }),
+      });
+      setPostUrl("");
+      setMessage(reply.alreadyCompleted ? "This round's create-post reward is already secured." : `Post verified. +${reply.pointsAwarded} points added.`);
+      await loadState();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "The X post could not be verified.");
+    } finally {
+      setPostTaskBusy(false);
+    }
+  }
+
+  async function purchaseSpot(spotType: ShopSpotType, pointsPrice: number) {
+    if (!window.confirm(`Use ${pointsPrice} points to secure this campaign's ${spotType} spot?`)) return;
+    setShopBusy(spotType);
+    setMessage("");
+    try {
+      const reply = await requestJson<{ spotType: ShopSpotType; pointsSpent: number }>("/api/spin/shop/purchase", {
+        method: "POST",
+        body: JSON.stringify({ spotType, idempotencyKey: crypto.randomUUID() }),
+      });
+      setShopCelebration({ spotType: reply.spotType, pointsSpent: reply.pointsSpent });
+      await loadState();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "The spot could not be secured.");
+      await loadState();
+    } finally {
+      setShopBusy(null);
     }
   }
 
@@ -586,7 +644,7 @@ export function SpinWheelApp() {
               <div><span>CONNECTED AS</span><strong>@{state.user.xUsername}</strong></div>
               <div><span>SPINS LEFT</span><strong>{state.user.spinsAvailable}</strong></div>
               <div><span>LIFETIME EARNED</span><strong>{state.user.spinsEarned}</strong></div>
-              <div><span>POINTS</span><strong>{state.user.points}</strong></div>
+              <div><span>POINTS BALANCE</span><strong>{state.user.points}</strong></div>
               <div><span>WINS</span><strong>{state.user.totalWins}/9</strong></div>
               <div><span>CONNECTED USERS</span><strong>{state.community.connectedUsers}</strong></div>
               <button type="button" onClick={logout}>Disconnect</button>
@@ -624,6 +682,26 @@ export function SpinWheelApp() {
                       </div>
                     </article>
                   ))}
+                  <article className={`post-point-task ${state.postTask?.completed ? "claimed" : ""}`}>
+                    <div><span>06 · CREATE</span><h3>Post for the Hood</h3><p>Create a public X post from @{state.user.xUsername}, tag @BunnysHood, and earn 3 points for this round.</p></div>
+                    {state.postTask?.completed ? <div className="spin-task-actions"><a href={state.postTask.postUrl} target="_blank" rel="noreferrer">Verified · +3 points</a></div> : <div className="post-task-controls"><a className="create-post-button" href={xShareUrl(state.campaign.shopPostText, "")} target="_blank" rel="noreferrer">Create post on X</a><form onSubmit={submitPostTask}><label htmlFor="spin-post-url">Paste your published post URL</label><div><input id="spin-post-url" type="url" value={postUrl} onChange={(event) => setPostUrl(event.target.value)} placeholder="https://x.com/you/status/..." required /><button disabled={postTaskBusy}>{postTaskBusy ? "Verifying…" : "Verify +3"}</button></div></form></div>}
+                  </article>
+                </div>
+              </section>
+            )}
+
+            {state.campaign && (
+              <section className="hood-shop" id="hood-shop">
+                <div className="shop-noise" aria-hidden="true" />
+                <header><div><p className="section-kicker">POINTS MARKET · ROUND {String(state.campaign.roundNumber).padStart(2, "0")}</p><h2>THE HOOD<br /><em>SHOP.</em></h2></div><div className="shop-balance"><span>AVAILABLE BALANCE</span><strong>{state.user.points}</strong><small>{state.user.pointsEarned} earned · {state.user.pointsSpent} spent</small></div></header>
+                <div className="shop-products">
+                  {(state.shop ?? []).map((item) => {
+                    const roleFull = item.spotType === "GTD" ? state.user!.roleWins.GTD >= 3 : state.user!.roleWins.FCFS1 >= 3;
+                    const disabled = item.purchasedByUser || item.remaining < 1 || state.user!.points < item.pointsPrice || roleFull || Boolean(shopBusy);
+                    const status = item.purchasedByUser ? "SECURED" : item.remaining < 1 ? "SOLD OUT" : roleFull ? "ROLE LIMIT REACHED" : state.user!.points < item.pointsPrice ? `NEED ${item.pointsPrice - state.user!.points} MORE` : "CLAIM WITH POINTS";
+                    return <article className={`shop-product shop-${item.spotType.toLowerCase()}`} key={item.spotType}><div className="shop-product-index">{item.spotType === "GTD" ? "01" : "02"}</div><div><span>{item.spotType === "GTD" ? "GUARANTEED WHITELIST" : "FIRST COME · FIRST SERVED"}</span><h3>{item.spotType}</h3><p>{item.spotType === "GTD" ? "Lock a guaranteed whitelist position from this campaign pool." : "Secure an FCFS access position using points you earned in the Hood."}</p></div><div className="shop-price"><strong>{item.pointsPrice}</strong><span>POINTS</span></div><div className="shop-stock"><span>UP FOR GRABS</span><strong>{item.remaining} <small>/ {item.totalCount}</small></strong></div><button type="button" disabled={disabled} onClick={() => purchaseSpot(item.spotType, item.pointsPrice)}>{shopBusy === item.spotType ? "SECURING…" : status}</button></article>;
+                  })}
+                  {(state.shop ?? []).length === 0 && <div className="shop-closed"><strong>SHOP STOCK IS BEING LOADED.</strong><span>Your points stay in your balance.</span></div>}
                 </div>
               </section>
             )}
@@ -704,7 +782,7 @@ export function SpinWheelApp() {
                 {state.wins?.map((win, index) => (
                   <article key={win.id}>
                     <div className="win-number">{String(state.wins!.length - index).padStart(2, "0")}</div>
-                    <div><span>{new Date(win.wonAt).toLocaleString()}</span><h3>{win.prizeType}</h3><a className="win-share-link" href={winShareHref(win.prizeType)} target="_blank" rel="noreferrer">Share on X</a></div>
+                    <div><span>{new Date(win.wonAt).toLocaleString()} · {win.source === "shop" ? "POINTS SHOP" : "WHEEL"}</span><h3>{win.shopSpotType ?? win.prizeType}</h3><a className="win-share-link" href={winShareHref(win.prizeType)} target="_blank" rel="noreferrer">Share on X</a></div>
                     {win.wallet ? (
                       <div className="wallet-entry">
                         <div className="locked-wallet"><span>{state.walletSubmissionsAllowed && state.walletChangesAllowed ? "CURRENT WALLET" : "LOCKED WALLET"}</span><strong>{win.wallet.slice(0, 8)}…{win.wallet.slice(-6)}</strong><small>{!state.walletSubmissionsAllowed ? "Wallet submissions paused by admin" : state.walletChangesAllowed ? "Admin currently allows changes" : "Changes disabled by admin"}</small></div>
@@ -742,6 +820,7 @@ export function SpinWheelApp() {
         )}
         {message && <div className="spin-message" role="status">{message}</div>}
       </section>
+      {shopCelebration && <div className="shop-celebration" role="dialog" aria-modal="true" aria-label={`${shopCelebration.spotType} secured`}><div className="shop-confetti" aria-hidden="true">{Array.from({ length: 18 }, (_, index) => <i key={index} style={{ "--confetti": index } as CSSProperties} />)}</div><div className="shop-celebration-ring"><span>BH</span></div><p>ACCESS ACQUIRED</p><h2>{shopCelebration.spotType}<br /><em>SECURED.</em></h2><strong>{shopCelebration.pointsSpent} POINTS USED</strong><small>Your permanent win is saved. Add its receiving wallet in your Hood profile.</small><button type="button" onClick={() => { setShopCelebration(null); document.getElementById("spin-profile")?.scrollIntoView({ behavior: "smooth" }); }}>Add receiving wallet</button></div>}
     </>
   );
 }

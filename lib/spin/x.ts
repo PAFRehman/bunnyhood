@@ -99,7 +99,7 @@ export async function upsertXUser(
         ${profile.profile_image_url ?? null}, ${profile.created_at ?? null}::timestamptz,
         ${encryptedAccessToken}, ${encryptedRefreshToken}, ${tokenExpiresAt}::timestamptz
       )
-      returning id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, total_wins,
+      returning id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, points_spent, total_wins,
         referral_code, referral_count, referral_spins_earned
     ` : await sql<SpinUserRow[]>`
       update spin_users
@@ -113,7 +113,7 @@ export async function upsertXUser(
           last_seen_at = now(),
           updated_at = now()
       where id = ${existing[0].id}::uuid
-      returning id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, total_wins,
+      returning id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, points_spent, total_wins,
         referral_code, referral_count, referral_spins_earned
     `;
 

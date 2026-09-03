@@ -25,7 +25,7 @@ async function write(output: PassThrough, value: string) {
 async function writeUsers(output: PassThrough) {
   const sql = getDb();
   await write(output, csvLine([
-    "User ID", "X User ID", "X Username", "X Name", "Points", "Spins Earned",
+    "User ID", "X User ID", "X Username", "X Name", "Points Available", "Points Earned", "Points Spent", "Spins Earned",
     "Spins Left", "Spins Used", "Total Wins", "GTD", "FCFS1", "FCFS2",
     "Referral Code", "Successful Referrals", "Referral Spins", "Connected At",
     "Last Seen", "Last Spin",
@@ -36,6 +36,8 @@ async function writeUsers(output: PassThrough) {
     x_username: string;
     x_name: string;
     points: number | string;
+    points_spent: number | string;
+    points_available: number | string;
     spins_earned: number | string;
     spins_available: number | string;
     spins_used: number | string;
@@ -51,7 +53,8 @@ async function writeUsers(output: PassThrough) {
     last_spin_at: Date | string | null;
   }[]>`
     select users.id, users.x_user_id, users.x_username, users.x_name,
-      users.points, users.spins_earned, users.spins_available, users.spins_used,
+      users.points, users.points_spent, (users.points - users.points_spent)::bigint as points_available,
+      users.spins_earned, users.spins_available, users.spins_used,
       users.total_wins,
       count(wins.id) filter (where wins.prize_type = 'GTD')::int as gtd_wins,
       count(wins.id) filter (where wins.prize_type = 'FCFS1')::int as fcfs1_wins,
@@ -66,7 +69,7 @@ async function writeUsers(output: PassThrough) {
   for await (const rows of cursor) {
     for (const row of rows) {
       await write(output, csvLine([
-        row.id, row.x_user_id, row.x_username, row.x_name, row.points,
+        row.id, row.x_user_id, row.x_username, row.x_name, row.points_available, row.points, row.points_spent,
         row.spins_earned, row.spins_available, row.spins_used, row.total_wins,
         row.gtd_wins, row.fcfs1_wins, row.fcfs2_wins, row.referral_code,
         row.referral_count, row.referral_spins_earned,
@@ -80,7 +83,7 @@ async function writeUsers(output: PassThrough) {
 async function writeWins(output: PassThrough) {
   const sql = getDb();
   await write(output, csvLine([
-    "Win ID", "User ID", "X User ID", "X Username", "X Name", "Role", "Won At",
+    "Win ID", "User ID", "X User ID", "X Username", "X Name", "Role", "Source", "Won At",
     "Wallet Status", "EVM Wallet", "Wallet Submitted At",
   ]));
   const cursor = sql<{
@@ -90,21 +93,25 @@ async function writeWins(output: PassThrough) {
     x_username: string;
     x_name: string;
     prize_type: string;
+    source: string;
+    shop_spot_type: string | null;
     won_at: Date | string;
     wallet_address: string | null;
     wallet_submitted_at: Date | string | null;
   }[]>`
     select wins.id, wins.user_id, users.x_user_id, users.x_username, users.x_name,
-      wins.prize_type, wins.won_at, wins.wallet_address, wins.wallet_submitted_at
+      wins.prize_type, wins.source, purchases.spot_type as shop_spot_type,
+      wins.won_at, wins.wallet_address, wins.wallet_submitted_at
     from spin_wins wins
     join spin_users users on users.id = wins.user_id
+    left join spin_shop_purchases purchases on purchases.id = wins.shop_purchase_id
     order by wins.won_at desc, wins.id
   `.cursor(CURSOR_ROWS);
   for await (const rows of cursor) {
     for (const row of rows) {
       await write(output, csvLine([
         row.id, row.user_id, row.x_user_id, row.x_username, row.x_name,
-        row.prize_type, new Date(row.won_at).toISOString(),
+        row.shop_spot_type ?? row.prize_type, row.source.toUpperCase(), new Date(row.won_at).toISOString(),
         row.wallet_address ? "SUBMITTED" : "WAITING", row.wallet_address,
         row.wallet_submitted_at ? new Date(row.wallet_submitted_at).toISOString() : "",
       ]));
