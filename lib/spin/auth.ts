@@ -19,6 +19,8 @@ export type SpinUser = {
   spinsAvailable: number;
   spinsUsed: number;
   points: number;
+  pointsEarned: number;
+  pointsSpent: number;
   totalWins: number;
 };
 
@@ -34,6 +36,7 @@ type SessionRow = {
   spins_available: number;
   spins_used: number;
   points: number;
+  points_spent: number;
   total_wins: number;
 };
 
@@ -47,7 +50,9 @@ function mapUser(row: SessionRow): SpinUser {
     spinsEarned: Number(row.spins_earned),
     spinsAvailable: Number(row.spins_available),
     spinsUsed: Number(row.spins_used),
-    points: Number(row.points),
+    points: Number(row.points) - Number(row.points_spent),
+    pointsEarned: Number(row.points),
+    pointsSpent: Number(row.points_spent),
     totalWins: Number(row.total_wins),
   };
 }
@@ -70,6 +75,7 @@ export async function getSessionUser(request: Request, requireCsrf = false, touc
       u.spins_available,
       u.spins_used,
       u.points,
+      u.points_spent,
       u.total_wins
     from spin_sessions s
     join spin_users u on u.id = s.user_id

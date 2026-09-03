@@ -21,6 +21,7 @@ export async function POST(request: Request) {
       gtdCount?: number;
       fcfs1Count?: number;
       fcfs2Count?: number;
+      shopPostText?: string;
       startNewCampaign?: boolean;
     }>(request);
     const campaign = await publishCampaign({
@@ -32,6 +33,7 @@ export async function POST(request: Request) {
       gtdCount: body.gtdCount,
       fcfs1Count: body.fcfs1Count,
       fcfs2Count: body.fcfs2Count,
+      shopPostText: body.shopPostText,
       startNewCampaign: Boolean(body.startNewCampaign),
     });
     await recordAdminAction("campaign_published", {

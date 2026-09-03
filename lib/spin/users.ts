@@ -12,6 +12,7 @@ export type SpinUserRow = {
   spins_available: number;
   spins_used: number;
   points: number;
+  points_spent: number;
   total_wins: number;
   referral_code: string | null;
   referral_count: number;
@@ -94,7 +95,7 @@ export async function customizeReferralCode(userId: string, rawCode: string) {
   return inTransaction(async (sql) => {
     await sql`select pg_advisory_xact_lock(hashtext(${`referral-code:${code}`}))`;
     const users = await sql<SpinUserRow[]>`
-      select id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, total_wins,
+      select id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, points_spent, total_wins,
         referral_code, referral_count, referral_spins_earned
       from spin_users where id = ${userId}::uuid limit 1 for update
     `;
@@ -114,7 +115,7 @@ export async function customizeReferralCode(userId: string, rawCode: string) {
     const updated = await sql<SpinUserRow[]>`
       update spin_users set referral_code = ${code}, updated_at = now()
       where id = ${userId}::uuid
-      returning id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, total_wins,
+      returning id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, points_spent, total_wins,
         referral_code, referral_count, referral_spins_earned
     `;
     return {
@@ -136,7 +137,7 @@ export async function applyNewUserReferral(
   await sql`select pg_advisory_xact_lock(hashtext(${`referral-credit:${referredUser.id}`}))`;
   const referrers = await sql<SpinUserRow[]>`
     select users.id, users.x_user_id, users.x_username, users.x_name,
-      users.spins_earned, users.spins_available, users.spins_used, users.points, users.total_wins,
+      users.spins_earned, users.spins_available, users.spins_used, users.points, users.points_spent, users.total_wins,
       users.referral_code, users.referral_count, users.referral_spins_earned
     from spin_referral_codes codes
     join spin_users users on users.id = codes.user_id

@@ -7,6 +7,7 @@ import { HttpError } from "./http";
 import { getRoundProgress, hasCodeReward, markCodeReward } from "./progress";
 import { enforceRateLimit } from "./rate-limit";
 import { ensureProductionSchema } from "./schema";
+import { getShopState, type ShopSpotType } from "./shop";
 import { hashRedeemCode, normalizeRedeemCode, safeEqual, sha256 } from "./security";
 import { getSpinSettings } from "./settings";
 import { getStorageSafetyState, type StorageSafetyState } from "./storage-safety";
@@ -245,7 +246,7 @@ export async function redeemCampaignCode(user: SpinUser, rawCode: string) {
           spins_earned = spins_earned + ${awarded},
           updated_at = now()
       where id = ${user.id}::uuid
-      returning id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, total_wins,
+      returning id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, points_spent, total_wins,
         referral_code, referral_count, referral_spins_earned
     `;
     const updatedUser = updated[0];
@@ -274,7 +275,7 @@ export async function playSpins(
   return inTransaction(async (sql) => {
     await sql`select pg_advisory_xact_lock_shared(hashtext('bunny-hood-active-campaign'))`;
     const locked = await sql<SpinUserRow[]>`
-      select id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, total_wins,
+      select id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, points_spent, total_wins,
         referral_code, referral_count, referral_spins_earned
       from spin_users where id = ${user.id}::uuid for update
     `;
@@ -620,7 +621,7 @@ export async function getWheelState(user: SpinUser | null, knownStorage?: Storag
     };
   }
   const currentUsers = await sql<SpinUserRow[]>`
-    select id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, total_wins,
+    select id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, points_spent, total_wins,
       referral_code, referral_count, referral_spins_earned
     from spin_users where id = ${user.id}::uuid limit 1
   `;
@@ -650,17 +651,27 @@ export async function getWheelState(user: SpinUser | null, knownStorage?: Storag
     where user_id = ${user.id}::uuid
       and round_id = ${campaign.round_id}::uuid
   ` : [];
+  const postTasks = campaign ? await sql<{ post_url: string; points_awarded: number; verified_at: Date | string }[]>`
+    select post_url, points_awarded, verified_at from spin_post_tasks
+    where user_id = ${user.id}::uuid and round_id = ${campaign.round_id}::uuid
+    limit 1
+  ` : [];
+  const shop = campaign ? await getShopState(sql, campaign.id, user.id) : [];
   const wins = await sql<{
     id: string;
     prize_type: PrizeType;
     won_at: Date | string;
     wallet_address: string | null;
     wallet_submitted_at: Date | string | null;
+    source: "wheel" | "shop";
+    shop_spot_type: ShopSpotType | null;
   }[]>`
-    select id, prize_type, won_at, wallet_address, wallet_submitted_at
-    from spin_wins
-    where user_id = ${user.id}::uuid
-    order by won_at desc
+    select wins.id, wins.prize_type, wins.won_at, wins.wallet_address, wins.wallet_submitted_at,
+      wins.source, purchases.spot_type as shop_spot_type
+    from spin_wins wins
+    left join spin_shop_purchases purchases on purchases.id = wins.shop_purchase_id
+    where wins.user_id = ${user.id}::uuid
+    order by wins.won_at desc
   `;
   const roleWins = emptyRoleCounts();
   for (const win of wins) roleWins[win.prize_type] += 1;
@@ -676,7 +687,9 @@ export async function getWheelState(user: SpinUser | null, knownStorage?: Storag
       spinsEarned: Number(current.spins_earned),
       spinsAvailable: Number(current.spins_available),
       spinsUsed: Number(current.spins_used),
-      points: Number(current.points),
+      points: Number(current.points) - Number(current.points_spent),
+      pointsEarned: Number(current.points),
+      pointsSpent: Number(current.points_spent),
       totalWins: Number(current.total_wins),
       roleWins,
     },
@@ -699,12 +712,21 @@ export async function getWheelState(user: SpinUser | null, knownStorage?: Storag
     codeRedemption: progress.codeAwardedSpins === null
       ? null
       : { awardedSpins: progress.codeAwardedSpins },
+    postTask: postTasks[0] ? {
+      completed: true,
+      postUrl: postTasks[0].post_url,
+      pointsAwarded: Number(postTasks[0].points_awarded),
+      verifiedAt: new Date(postTasks[0].verified_at).toISOString(),
+    } : { completed: false },
+    shop,
     wins: wins.map((win) => ({
       id: win.id,
       prizeType: win.prize_type,
       wonAt: new Date(win.won_at).toISOString(),
       wallet: win.wallet_address,
       walletSubmittedAt: win.wallet_submitted_at ? new Date(win.wallet_submitted_at).toISOString() : null,
+      source: win.source,
+      shopSpotType: win.shop_spot_type,
     })),
   };
 }
@@ -715,6 +737,7 @@ function publicCampaign(campaign: CampaignRow | null) {
     title: campaign.title,
     roundNumber: Number(campaign.round_number),
     tweetUrl: campaign.tweet_url,
+    shopPostText: campaign.shop_post_text,
     startsAt: new Date(campaign.starts_at).toISOString(),
     endsAt: new Date(campaign.ends_at).toISOString(),
   } : null;

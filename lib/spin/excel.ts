@@ -18,6 +18,8 @@ type UserExportRow = {
   spins_available: number | string;
   spins_used: number | string;
   points: number | string;
+  points_spent: number | string;
+  points_available: number | string;
   total_wins: number;
   gtd_wins: number;
   fcfs1_wins: number;
@@ -37,6 +39,8 @@ type WinExportRow = {
   x_username: string;
   x_name: string;
   prize_type: string;
+  source: string;
+  shop_spot_type: string | null;
   won_at: Date | string;
   wallet_address: string | null;
   wallet_submitted_at: Date | string | null;
@@ -132,6 +136,10 @@ export async function buildBunnyHoodWorkbook() {
   addSummaryRow(summary, "Spins currently available", overview.totals.spinsAvailable);
   addSummaryRow(summary, "Lifetime spins used", overview.totals.spinsUsed);
   addSummaryRow(summary, "Lifetime points", overview.totals.points);
+  addSummaryRow(summary, "Points spent", overview.totals.pointsSpent);
+  addSummaryRow(summary, "Points available", overview.totals.pointsAvailable);
+  addSummaryRow(summary, "Average available points", overview.totals.averagePoints);
+  addSummaryRow(summary, "Average points per holder", overview.totals.averageHolderPoints);
   addSummaryRow(summary, "Total wins", overview.totals.wins);
   addSummaryRow(summary, "GTD wins", overview.totals.roleWins.GTD);
   addSummaryRow(summary, "FCFS1 wins", overview.totals.roleWins.FCFS1);
@@ -147,7 +155,9 @@ export async function buildBunnyHoodWorkbook() {
     { header: "X USER ID", key: "xUserId", width: 22 },
     { header: "X USERNAME", key: "xUsername", width: 20 },
     { header: "X NAME", key: "xName", width: 28 },
-    { header: "POINTS", key: "points", width: 13 },
+    { header: "POINTS AVAILABLE", key: "pointsAvailable", width: 18 },
+    { header: "POINTS EARNED", key: "points", width: 17 },
+    { header: "POINTS SPENT", key: "pointsSpent", width: 15 },
     { header: "SPINS EARNED", key: "spinsEarned", width: 16 },
     { header: "SPINS LEFT", key: "spinsAvailable", width: 14 },
     { header: "SPINS USED", key: "spinsUsed", width: 14 },
@@ -164,7 +174,8 @@ export async function buildBunnyHoodWorkbook() {
   ], LIME);
   const users = await sql<UserExportRow[]>`
     select users.id, users.x_user_id, users.x_username, users.x_name,
-      users.spins_earned, users.spins_available, users.spins_used, users.points,
+      users.spins_earned, users.spins_available, users.spins_used, users.points, users.points_spent,
+      (users.points - users.points_spent)::bigint as points_available,
       users.total_wins,
       count(wins.id) filter (where wins.prize_type = 'GTD')::int as gtd_wins,
       count(wins.id) filter (where wins.prize_type = 'FCFS1')::int as fcfs1_wins,
@@ -183,6 +194,8 @@ export async function buildBunnyHoodWorkbook() {
       xUsername: safeText(user.x_username),
       xName: safeText(user.x_name),
       points: numberValue(user.points),
+      pointsAvailable: numberValue(user.points_available),
+      pointsSpent: numberValue(user.points_spent),
       spinsEarned: numberValue(user.spins_earned),
       spinsAvailable: numberValue(user.spins_available),
       spinsUsed: numberValue(user.spins_used),
@@ -206,6 +219,7 @@ export async function buildBunnyHoodWorkbook() {
     { header: "X USERNAME", key: "xUsername", width: 20 },
     { header: "X NAME", key: "xName", width: 28 },
     { header: "ROLE", key: "role", width: 12 },
+    { header: "SOURCE", key: "source", width: 16 },
     { header: "WON AT", key: "wonAt", width: 25 },
     { header: "WALLET STATUS", key: "walletStatus", width: 17 },
     { header: "EVM WALLET", key: "wallet", width: 46 },
@@ -213,9 +227,11 @@ export async function buildBunnyHoodWorkbook() {
   ], "FFD700");
   const wins = await sql<WinExportRow[]>`
     select wins.id, wins.user_id, users.x_user_id, users.x_username, users.x_name,
-      wins.prize_type, wins.won_at, wins.wallet_address, wins.wallet_submitted_at
+      wins.prize_type, wins.source, purchases.spot_type as shop_spot_type,
+      wins.won_at, wins.wallet_address, wins.wallet_submitted_at
     from spin_wins wins
     join spin_users users on users.id = wins.user_id
+    left join spin_shop_purchases purchases on purchases.id = wins.shop_purchase_id
     order by wins.won_at desc, wins.id
   `;
   for (const win of wins) {
@@ -225,7 +241,8 @@ export async function buildBunnyHoodWorkbook() {
       xUserId: safeText(win.x_user_id),
       xUsername: safeText(win.x_username),
       xName: safeText(win.x_name),
-      role: win.prize_type,
+      role: win.shop_spot_type ?? win.prize_type,
+      source: win.source.toUpperCase(),
       wonAt: new Date(win.won_at).toISOString(),
       walletStatus: win.wallet_address ? "SUBMITTED" : "WAITING",
       wallet: safeText(win.wallet_address),

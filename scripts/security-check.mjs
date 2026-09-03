@@ -35,6 +35,7 @@ const migration = [
   "011_upcoming_products_waitlist.sql",
   "012_waitlist_required_x_post.sql",
   "013_wallet_eligibility_checker.sql",
+  "014_spin_points_shop.sql",
 ].map((name) => readFileSync(join(root, "db/migrations", name), "utf8")).join("\n");
 const wheel = readFileSync(join(root, "lib/spin/wheel.ts"), "utf8");
 const campaigns = readFileSync(join(root, "lib/spin/campaigns.ts"), "utf8");
@@ -53,6 +54,10 @@ const storageSafety = readFileSync(join(root, "lib/spin/storage-safety.ts"), "ut
 const homepage = readFileSync(join(root, "app/page.tsx"), "utf8");
 const xIntegration = readFileSync(join(root, "lib/spin/x.ts"), "utf8");
 const xStart = readFileSync(join(root, "app/api/spin/auth/x/start/route.ts"), "utf8");
+const spinShop = readFileSync(join(root, "lib/spin/shop.ts"), "utf8");
+const shopPurchaseRoute = readFileSync(join(root, "app/api/spin/shop/purchase/route.ts"), "utf8");
+const shopPostRoute = readFileSync(join(root, "app/api/spin/post-task/route.ts"), "utf8");
+const shopAdminRoute = readFileSync(join(root, "app/api/admin/spin/shop/route.ts"), "utf8");
 const rabbitContract = readFileSync(join(root, "contracts/BunnyHoodRabbitHoleSBT.sol"), "utf8");
 const rabbitClaim = readFileSync(join(root, "lib/rabbit-hole/claim.ts"), "utf8");
 const rabbitData = readFileSync(join(root, "lib/rabbit-hole/data.ts"), "utf8");
@@ -91,6 +96,8 @@ const storageGatedRoutes = [
   "app/api/spin/referral/code/route.ts",
   "app/api/spin/tasks/start/route.ts",
   "app/api/spin/tasks/claim/route.ts",
+  "app/api/spin/post-task/route.ts",
+  "app/api/spin/shop/purchase/route.ts",
   "app/api/spin/wins/[winId]/wallet/route.ts",
   "app/api/admin/spin/campaign/route.ts",
   "app/api/rabbit-hole/auth/x/start/route.ts",
@@ -221,7 +228,16 @@ if (!/from "next\/server"/.test(`${waitlistJoinRoute}\n${waitlistBonusRoute}`) |
 if (!/requireSpinAdmin/.test(waitlistAdminRoute) || !/verifyAdminTicket/.test(waitlistAdminPage) || /admin\/waitlist/.test(waitlistApp)) failures.push("Waitlist admin data is not private or the public page exposes its route.");
 if (!/maskWallet/.test(waitlistData) || !/includePrivate \? row\.wallet_address : maskWallet/.test(waitlistData)) failures.push("Public waitlist rankings can expose complete wallets.");
 if (!/create table if not exists checker_wallets/.test(migration) || !/eligibility_type in \('GTD', 'FCFS'\)/.test(migration)) failures.push("The GTD/FCFS wallet checker schema is missing or accepts unknown statuses.");
-if (!/requireCheckerWallet/.test(checkerData) || !/on conflict \(wallet_address\) do update/.test(checkerData)) failures.push("Checker wallet validation or idempotent bulk import is missing.");
+if (!/requireCheckerWallet/.test(checkerData) || !/on conflict \(\s*wallet_address,\s*eligibility_type\s*\)\s*do update/.test(checkerData)) failures.push("Checker wallet validation or idempotent bulk import is missing.");
+
+if (!/create table if not exists spin_shop_items/.test(migration) || !/create table if not exists spin_shop_purchases/.test(migration) || !/points_spent >= 0 and points_spent <= points/.test(migration)) failures.push("The points shop ledger or spendable-balance constraint is missing.");
+if (!/unique \(campaign_id, user_id, spot_type\)/.test(migration) || !/purchased_count < total_count/.test(spinShop) || !/points - points_spent >=/.test(spinShop)) failures.push("Shop purchases are not protected against duplicate claims, overselling, or overspending.");
+if (!/source in \('wheel', 'shop'\)/.test(migration) || !/shop_purchase_id/.test(`${migration}\n${wheel}`)) failures.push("Shop purchases do not create permanent wallet-ready win records.");
+if (!/create table if not exists spin_post_tasks/.test(migration) || !/unique \(user_id, round_id\)/.test(migration) || !/points_awarded integer not null default 3/.test(migration)) failures.push("The per-round three-point X-post task ledger is missing.");
+if (!/xUsername !== user\.xUsername\.toLowerCase/.test(spinShop) || !/@bunnyshood/.test(spinShop) || !/on conflict \(post_id\) do nothing/.test(spinShop)) failures.push("X-post rewards are not bound to the connected account, required tag, and unique post.");
+if (!/requireSessionUser\(request, true\)/.test(shopPurchaseRoute) || !/requireSessionUser\(request, true\)/.test(shopPostRoute) || !/assertSameOrigin/.test(`${shopPurchaseRoute}\n${shopPostRoute}`)) failures.push("Public shop mutations are missing authenticated CSRF protection.");
+if (!/requireSpinAdmin/.test(shopAdminRoute) || !/assertSameOrigin/.test(shopAdminRoute) || !/recordAdminAction/.test(shopAdminRoute)) failures.push("Points-shop controls are not protected and audited in admin.");
+if (!/Top 100 point balances/.test(adminApp) || !/topPointUsers/.test(adminData) || !/limit 100/.test(adminData)) failures.push("Private point analytics and top-100 balances are missing.");
 if (!/anonymousRequestKey/.test(checkerPublicRoute) || !/enforceRateLimit/.test(checkerPublicRoute) || /getCheckerStats|listCheckerWallets/.test(checkerPublicRoute)) failures.push("The public checker is not throttled or exposes private counts/list data.");
 if (!/requireSpinAdmin/.test(checkerAdminRoute) || !/assertSameOrigin/.test(checkerAdminRoute) || !/verifyAdminTicket/.test(checkerAdminPage)) failures.push("The checker admin page or mutation API is not protected by the existing admin session.");
 if (!/GTD WALLETS ADDED/.test(checkerAdminApp) || !/FCFS WALLETS ADDED/.test(checkerAdminApp) || !/stats\.gtd/.test(checkerAdminApp) || !/stats\.fcfs/.test(checkerAdminApp)) failures.push("Private GTD/FCFS wallet counts are missing from the checker admin.");

@@ -25,7 +25,7 @@ export async function getAdminOverview() {
     getSpinSettings(sql),
   ]);
 
-  const [totals, inventory, draw, databaseSize, tableStats, retention, daily, integrity, topReferrers] = await Promise.all([
+  const [totals, inventory, draw, databaseSize, tableStats, retention, daily, integrity, topReferrers, shopItems, topPointUsers] = await Promise.all([
     sql<{
       users: number;
       active_24h: number;
@@ -33,6 +33,11 @@ export async function getAdminOverview() {
       spins_available: number | string;
       spins_used: number | string;
       points: number | string;
+      points_spent: number | string;
+      points_available: number | string;
+      average_points: number | string;
+      average_holder_points: number | string;
+      point_holders: number;
       wins: number;
       pending_wallets: number;
       referrals: number;
@@ -47,6 +52,11 @@ export async function getAdminOverview() {
         coalesce(sum(spins_available), 0)::text as spins_available,
         coalesce(sum(spins_used), 0)::text as spins_used,
         coalesce(sum(points), 0)::text as points,
+        coalesce(sum(points_spent), 0)::text as points_spent,
+        coalesce(sum(points - points_spent), 0)::text as points_available,
+        coalesce(avg(points - points_spent), 0)::text as average_points,
+        coalesce(avg(points - points_spent) filter (where points > points_spent), 0)::text as average_holder_points,
+        count(*) filter (where points > points_spent)::int as point_holders,
         (select count(*)::int from spin_wins) as wins,
         (select count(*)::int from spin_wins where wallet_address is null) as pending_wallets,
         (select count(*)::int from spin_referrals) as referrals,
@@ -147,6 +157,32 @@ export async function getAdminOverview() {
       order by count(referrals.id) desc, max(referrals.created_at) desc, users.x_username asc
       limit 15
     `,
+    campaign ? sql<{
+      spot_type: "GTD" | "FCFS";
+      points_price: number | string;
+      total_count: number;
+      purchased_count: number;
+    }[]>`
+      select spot_type, points_price, total_count, purchased_count
+      from spin_shop_items where campaign_id = ${campaign.id}::uuid
+      order by case spot_type when 'GTD' then 1 else 2 end
+    ` : Promise.resolve([]),
+    sql<{
+      id: string;
+      x_user_id: string;
+      x_username: string;
+      x_name: string;
+      points_earned: number | string;
+      points_spent: number | string;
+      points_available: number | string;
+    }[]>`
+      select id, x_user_id, x_username, x_name,
+        points as points_earned, points_spent,
+        (points - points_spent)::bigint as points_available
+      from spin_users
+      order by (points - points_spent) desc, points desc, created_at asc
+      limit 100
+    `,
   ]);
 
   const total = totals[0];
@@ -156,6 +192,7 @@ export async function getAdminOverview() {
       id: campaign.id,
       title: campaign.title,
       tweetUrl: campaign.tweet_url,
+      shopPostText: campaign.shop_post_text,
       startsAt: new Date(campaign.starts_at).toISOString(),
       endsAt: new Date(campaign.ends_at).toISOString(),
       roundNumber: Number(campaign.round_number),
@@ -172,6 +209,11 @@ export async function getAdminOverview() {
       spinsAvailable: numeric(total?.spins_available),
       spinsUsed: numeric(total?.spins_used),
       points: numeric(total?.points),
+      pointsSpent: numeric(total?.points_spent),
+      pointsAvailable: numeric(total?.points_available),
+      averagePoints: numeric(total?.average_points),
+      averageHolderPoints: numeric(total?.average_holder_points),
+      pointHolders: numeric(total?.point_holders),
       wins: numeric(total?.wins),
       pendingWallets: numeric(total?.pending_wallets),
       referrals: numeric(total?.referrals),
@@ -185,6 +227,13 @@ export async function getAdminOverview() {
       prizeType: item.prize_type,
       claimed: Number(item.claimed),
       total: Number(item.total),
+    })),
+    shop: shopItems.map((item) => ({
+      spotType: item.spot_type,
+      pointsPrice: numeric(item.points_price),
+      totalCount: Number(item.total_count),
+      purchasedCount: Number(item.purchased_count),
+      remaining: Math.max(0, Number(item.total_count) - Number(item.purchased_count)),
     })),
     settings,
     storage: {
@@ -217,6 +266,16 @@ export async function getAdminOverview() {
       referralCount: Number(row.referral_count),
       awardedSpins: numeric(row.awarded_spins),
       lastReferralAt: iso(row.last_referral_at),
+    })),
+    topPointUsers: topPointUsers.map((row, index) => ({
+      rank: index + 1,
+      id: row.id,
+      xUserId: row.x_user_id,
+      xUsername: row.x_username,
+      xName: row.x_name,
+      pointsEarned: numeric(row.points_earned),
+      pointsSpent: numeric(row.points_spent),
+      pointsAvailable: numeric(row.points_available),
     })),
     daily: daily.map((row) => ({
       day: new Date(row.metric_day).toISOString().slice(0, 10),
@@ -274,6 +333,7 @@ export async function getAdminRecords(input: {
         spins_available: number | string;
         spins_used: number | string;
         points: number | string;
+        points_spent: number | string;
         total_wins: number;
         gtd_wins: number;
         fcfs1_wins: number;
@@ -285,7 +345,7 @@ export async function getAdminRecords(input: {
         last_spin_at: Date | string | null;
       }[]>`
         select users.id, users.x_user_id, users.x_username, users.x_name,
-          users.spins_earned, users.spins_available, users.spins_used, users.points,
+          users.spins_earned, users.spins_available, users.spins_used, users.points, users.points_spent,
           users.total_wins,
           count(wins.id) filter (where wins.prize_type = 'GTD')::int as gtd_wins,
           count(wins.id) filter (where wins.prize_type = 'FCFS1')::int as fcfs1_wins,
@@ -315,6 +375,8 @@ export async function getAdminRecords(input: {
         spinsAvailable: numeric(row.spins_available),
         spinsUsed: numeric(row.spins_used),
         points: numeric(row.points),
+        pointsSpent: numeric(row.points_spent),
+        pointsAvailable: numeric(row.points) - numeric(row.points_spent),
         totalWins: Number(row.total_wins),
         roleWins: { GTD: Number(row.gtd_wins), FCFS1: Number(row.fcfs1_wins), FCFS2: Number(row.fcfs2_wins) },
         referralCode: row.referral_code,
@@ -347,11 +409,15 @@ export async function getAdminRecords(input: {
         won_at: Date | string;
         wallet_address: string | null;
         wallet_submitted_at: Date | string | null;
+        source: "wheel" | "shop";
+        shop_spot_type: "GTD" | "FCFS" | null;
       }[]>`
         select wins.id, users.x_user_id, users.x_username, users.x_name,
-          wins.prize_type, wins.won_at, wins.wallet_address, wins.wallet_submitted_at
+          wins.prize_type, wins.won_at, wins.wallet_address, wins.wallet_submitted_at,
+          wins.source, purchases.spot_type as shop_spot_type
         from spin_wins wins
         join spin_users users on users.id = wins.user_id
+        left join spin_shop_purchases purchases on purchases.id = wins.shop_purchase_id
         where ${search} = ''
           or users.x_username ilike ${pattern}
           or users.x_user_id ilike ${pattern}
@@ -373,6 +439,8 @@ export async function getAdminRecords(input: {
         wallet: row.wallet_address,
         walletSubmittedAt: iso(row.wallet_submitted_at),
         walletStatus: row.wallet_address ? "submitted" : "waiting",
+        source: row.source,
+        shopSpotType: row.shop_spot_type,
       })),
     };
   }

@@ -22,6 +22,7 @@ export type CampaignRow = {
   title: string;
   tweet_id: string;
   tweet_url: string;
+  shop_post_text: string;
   code_hash: string;
   starts_at: Date | string;
   ends_at: Date | string;
@@ -47,7 +48,7 @@ export function extractTweetId(tweetUrl: string) {
 export async function getActiveCampaign(sql: SpinDb = getDb()) {
   const rows = await sql<CampaignRow[]>`
     select campaigns.id, rounds.id as round_id, rounds.round_number,
-      rounds.title, rounds.tweet_id, rounds.tweet_url, rounds.code_hash,
+      rounds.title, rounds.tweet_id, rounds.tweet_url, rounds.code_hash, rounds.shop_post_text,
       campaigns.starts_at, campaigns.ends_at, campaigns.expected_users,
       campaigns.expected_spins_per_user,
       coalesce((
@@ -72,7 +73,7 @@ export async function getActiveCampaign(sql: SpinDb = getDb()) {
 export async function getLatestPrizeCampaign(sql: SpinDb = getDb()) {
   const rows = await sql<CampaignRow[]>`
     select campaigns.id, rounds.id as round_id, rounds.round_number,
-      rounds.title, rounds.tweet_id, rounds.tweet_url, rounds.code_hash,
+      rounds.title, rounds.tweet_id, rounds.tweet_url, rounds.code_hash, rounds.shop_post_text,
       campaigns.starts_at, campaigns.ends_at, campaigns.expected_users,
       campaigns.expected_spins_per_user,
       coalesce((
@@ -83,7 +84,7 @@ export async function getLatestPrizeCampaign(sql: SpinDb = getDb()) {
       campaigns.created_at
     from spin_campaigns campaigns
     join lateral (
-      select id, round_number, title, tweet_id, tweet_url, code_hash
+      select id, round_number, title, tweet_id, tweet_url, code_hash, shop_post_text
       from spin_campaign_rounds
       where campaign_id = campaigns.id
       order by active desc, round_number desc
@@ -226,7 +227,7 @@ export async function claimCampaignTask(user: SpinUser, task: TaskType) {
           points = points + 1,
           updated_at = now()
       where id = ${user.id}::uuid
-      returning id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, total_wins,
+      returning id, x_user_id, x_username, x_name, spins_earned, spins_available, spins_used, points, points_spent, total_wins,
         referral_code, referral_count, referral_spins_earned
     `;
     return {
@@ -302,6 +303,7 @@ export async function publishCampaign(input: {
   gtdCount?: number;
   fcfs1Count?: number;
   fcfs2Count?: number;
+  shopPostText?: string;
   startNewCampaign?: boolean;
 }) {
   await ensureProductionSchema();
@@ -312,6 +314,11 @@ export async function publishCampaign(input: {
   if (code.length < 4 || code.length > 64) {
     throw new HttpError(400, "Redeem code must be 4–64 characters.", "BAD_CODE");
   }
+  const rawShopPostText = (input.shopPostText ?? "").trim();
+  const taggedShopPostText = /(^|\s)@BunnysHood\b/i.test(rawShopPostText)
+    ? rawShopPostText
+    : `${rawShopPostText || "I am earning my way into the Bunny Hood."} @BunnysHood`;
+  const shopPostText = taggedShopPostText.slice(0, 260);
   const expectedUsers = integerInRange(input.expectedUsers, 500, 10, 1_000_000);
   const gtdCount = integerInRange(input.gtdCount, 15, 1, 100_000);
   const fcfs1Count = integerInRange(input.fcfs1Count, 20, 1, 100_000);
@@ -354,10 +361,10 @@ export async function publishCampaign(input: {
       `;
       await sql`
         insert into spin_campaign_rounds (
-          id, campaign_id, round_number, title, tweet_id, tweet_url, code_hash, active
+          id, campaign_id, round_number, title, tweet_id, tweet_url, code_hash, shop_post_text, active
         ) values (
           ${roundId}, ${activeCampaignId}::uuid, ${roundNumber}, ${title}, ${tweetId},
-          ${tweetUrl}, ${hashRedeemCode(activeCampaignId, code)}, true
+          ${tweetUrl}, ${hashRedeemCode(activeCampaignId, code)}, ${shopPostText}, true
         )
       `;
       await sql`
@@ -385,10 +392,10 @@ export async function publishCampaign(input: {
     const roundId = randomUUID();
     await sql`
       insert into spin_campaign_rounds (
-        id, campaign_id, round_number, title, tweet_id, tweet_url, code_hash, active
+        id, campaign_id, round_number, title, tweet_id, tweet_url, code_hash, shop_post_text, active
       ) values (
         ${roundId}, ${campaignId}, 1, ${title}, ${tweetId}, ${tweetUrl},
-        ${hashRedeemCode(campaignId, code)}, true
+        ${hashRedeemCode(campaignId, code)}, ${shopPostText}, true
       )
     `;
     await sql`
