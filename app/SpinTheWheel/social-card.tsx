@@ -3,7 +3,7 @@ import { ImageResponse } from "next/og";
 export const spinSocialImageAlt = "Bunny Hood Spin the Wheel — complete tasks, earn points, and win access";
 export const spinSocialImageSize = { width: 1200, height: 630 };
 
-export function renderSpinSocialCard() {
+export function renderSpinSocialCard(referralCode = "") {
   return new ImageResponse(
     (
       <div
@@ -159,23 +159,43 @@ export function renderSpinSocialCard() {
           />
         </div>
 
-        <div
-          style={{
-            position: "absolute",
-            right: 84,
-            bottom: 66,
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            color: "#caff00",
-            fontSize: 13,
-            fontWeight: 900,
-            letterSpacing: 3,
-          }}
-        >
-          <span>●</span>
-          <span>BUNNYHOOD.XYZ</span>
-        </div>
+        {referralCode ? (
+          <div
+            style={{
+              position: "absolute",
+              right: 76,
+              bottom: 57,
+              display: "flex",
+              alignItems: "center",
+              gap: 13,
+              border: "2px solid #caff00",
+              borderRadius: 999,
+              background: "#080a07",
+              padding: "10px 17px 10px 19px",
+            }}
+          >
+            <span style={{ color: "#7d8676", fontSize: 10, fontWeight: 900, letterSpacing: 2 }}>INVITE CODE</span>
+            <span style={{ color: "#caff00", fontSize: 18, fontWeight: 900, letterSpacing: 2 }}>{referralCode.toUpperCase()}</span>
+          </div>
+        ) : (
+          <div
+            style={{
+              position: "absolute",
+              right: 84,
+              bottom: 66,
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              color: "#caff00",
+              fontSize: 13,
+              fontWeight: 900,
+              letterSpacing: 3,
+            }}
+          >
+            <span>●</span>
+            <span>BUNNYHOOD.XYZ</span>
+          </div>
+        )}
       </div>
     ),
     spinSocialImageSize,
