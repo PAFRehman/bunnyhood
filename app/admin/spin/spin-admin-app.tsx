@@ -46,11 +46,20 @@ type Dashboard = {
     postTaskText: string;
     postTaskRequiresTag: boolean;
     bunnyStreakDays: number;
+    bunnyDeathOnBreak: boolean;
+    bunnyGtdEnabled: boolean;
+    bunnyGtdRequirementMode: "days" | "points" | "both";
+    bunnyGtdStreakDays: number;
+    bunnyGtdPointsRequired: number;
   };
   bunny: {
     totalFeeds: number;
     fedToday: number;
     tradeReady: number;
+    fcfsReady: number;
+    gtdReady: number;
+    deadBunnies: number;
+    totalDeaths: number;
     totalTrades: number;
     gtdTrades: number;
     fcfsTrades: number;
@@ -209,6 +218,11 @@ export function SpinAdminApp() {
   const [shopPostText, setShopPostText] = useState("I am earning my way into the Bunny Hood. @BunnysHood");
   const [postTaskRequiresTag, setPostTaskRequiresTag] = useState(true);
   const [bunnyStreakDays, setBunnyStreakDays] = useState("7");
+  const [bunnyDeathOnBreak, setBunnyDeathOnBreak] = useState(false);
+  const [bunnyGtdEnabled, setBunnyGtdEnabled] = useState(false);
+  const [bunnyGtdRequirementMode, setBunnyGtdRequirementMode] = useState<"days" | "points" | "both">("both");
+  const [bunnyGtdStreakDays, setBunnyGtdStreakDays] = useState("30");
+  const [bunnyGtdPointsRequired, setBunnyGtdPointsRequired] = useState("100");
   const [engagementBusy, setEngagementBusy] = useState(false);
   const [gtdShopPrice, setGtdShopPrice] = useState("100");
   const [gtdShopPool, setGtdShopPool] = useState("0");
@@ -238,6 +252,11 @@ export function SpinAdminApp() {
         setShopPostText(data.settings.postTaskText);
         setPostTaskRequiresTag(data.settings.postTaskRequiresTag);
         setBunnyStreakDays(String(data.settings.bunnyStreakDays));
+        setBunnyDeathOnBreak(data.settings.bunnyDeathOnBreak);
+        setBunnyGtdEnabled(data.settings.bunnyGtdEnabled);
+        setBunnyGtdRequirementMode(data.settings.bunnyGtdRequirementMode);
+        setBunnyGtdStreakDays(String(data.settings.bunnyGtdStreakDays));
+        setBunnyGtdPointsRequired(String(data.settings.bunnyGtdPointsRequired));
       }
       if (data.campaign && loadedShopCampaign.current !== data.campaign.id) {
         loadedShopCampaign.current = data.campaign.id;
@@ -396,11 +415,21 @@ export function SpinAdminApp() {
           postTaskText: shopPostText,
           postTaskRequiresTag,
           bunnyStreakDays: Number(bunnyStreakDays),
+          bunnyDeathOnBreak,
+          bunnyGtdEnabled,
+          bunnyGtdRequirementMode,
+          bunnyGtdStreakDays: Number(bunnyGtdStreakDays),
+          bunnyGtdPointsRequired: Number(bunnyGtdPointsRequired),
         }),
       });
       setShopPostText(response.settings.postTaskText);
       setPostTaskRequiresTag(response.settings.postTaskRequiresTag);
       setBunnyStreakDays(String(response.settings.bunnyStreakDays));
+      setBunnyDeathOnBreak(response.settings.bunnyDeathOnBreak);
+      setBunnyGtdEnabled(response.settings.bunnyGtdEnabled);
+      setBunnyGtdRequirementMode(response.settings.bunnyGtdRequirementMode);
+      setBunnyGtdStreakDays(String(response.settings.bunnyGtdStreakDays));
+      setBunnyGtdPointsRequired(String(response.settings.bunnyGtdPointsRequired));
       setMessage("Daily post and Bunny evolution settings are live.");
       await loadDashboard();
     } catch (error) {
@@ -542,13 +571,26 @@ export function SpinAdminApp() {
             <form onSubmit={saveEngagementSettings}>
               <div className="admin-field"><label htmlFor="shop-post-text">Default verified X post</label><textarea id="shop-post-text" value={shopPostText} onChange={(event) => setShopPostText(event.target.value)} maxLength={260} rows={5} required /><small>{shopPostText.length}/260 characters · This text opens in the user&apos;s X composer. A verified post still must come from the X account connected to Spin the Wheel.</small></div>
               <label className="admin-new-campaign-toggle"><input type="checkbox" checked={postTaskRequiresTag} onChange={(event) => setPostTaskRequiresTag(event.target.checked)} /><span><strong>Require the @BunnysHood tag</strong><small>When enabled, the tag is appended to your saved text if omitted and must be present in the submitted public post. Turn this off to make the tag optional.</small></span></label>
-              <div className="admin-field"><label htmlFor="bunny-streak-days">Consecutive feed days to evolve</label><input id="bunny-streak-days" type="number" min="1" max="365" value={bunnyStreakDays} onChange={(event) => setBunnyStreakDays(event.target.value)} required /><small>At this streak the Bunny can be exchanged for either GTD or FCFS. The exchange creates a permanent wallet-ready win and begins a new Bunny cycle.</small></div>
+              <div className="admin-field"><label htmlFor="bunny-streak-days">Evolution days to unlock FCFS</label><input id="bunny-streak-days" type="number" min="1" max="365" value={bunnyStreakDays} onChange={(event) => setBunnyStreakDays(event.target.value)} required /><small>At this evolution day, the user can sell the Bunny for FCFS or keep feeding it. Selling creates a permanent wallet-ready win and starts a new Bunny cycle.</small></div>
+              <label className="admin-new-campaign-toggle admin-bunny-danger-toggle"><input type="checkbox" checked={bunnyDeathOnBreak} onChange={(event) => setBunnyDeathOnBreak(event.target.checked)} /><span><strong>Broken UTC streak kills and resets the Bunny</strong><small>When enabled, missing a complete UTC feed day resets that Bunny to day 0. Its next carrot starts a fresh cycle and the user sees a hunger message. Leave disabled to preserve evolution through missed days.</small></span></label>
+              <div className="admin-private-gtd">
+                <p>PRIVATE FUTURE REWARD</p>
+                <label className="admin-new-campaign-toggle"><input type="checkbox" checked={bunnyGtdEnabled} onChange={(event) => setBunnyGtdEnabled(event.target.checked)} /><span><strong>Enable private GTD Bunny exchange</strong><small>Users never see GTD in Feed the Bunny until this is enabled and their own Bunny meets the private rule.</small></span></label>
+                <div className="admin-field"><label htmlFor="bunny-gtd-mode">GTD requirement</label><select id="bunny-gtd-mode" value={bunnyGtdRequirementMode} onChange={(event) => setBunnyGtdRequirementMode(event.target.value as "days" | "points" | "both")} disabled={!bunnyGtdEnabled}><option value="days">Evolution days</option><option value="points">Available points</option><option value="both">Evolution days + available points</option></select></div>
+                <div className="admin-private-gtd-grid">
+                  <div className="admin-field"><label htmlFor="bunny-gtd-days">GTD evolution days</label><input id="bunny-gtd-days" type="number" min="1" max="365" value={bunnyGtdStreakDays} onChange={(event) => setBunnyGtdStreakDays(event.target.value)} disabled={!bunnyGtdEnabled || bunnyGtdRequirementMode === "points"} required /><small>Used for Days or Both.</small></div>
+                  <div className="admin-field"><label htmlFor="bunny-gtd-points">Minimum available points</label><input id="bunny-gtd-points" type="number" min="0" max="1000000000" value={bunnyGtdPointsRequired} onChange={(event) => setBunnyGtdPointsRequired(event.target.value)} disabled={!bunnyGtdEnabled || bunnyGtdRequirementMode === "days"} required /><small>Used for Points or Both. Eligibility checks the balance; these points are not deducted.</small></div>
+                </div>
+              </div>
               <button className="admin-submit" disabled={engagementBusy}>{engagementBusy ? "Saving…" : "Save engagement settings"}</button>
             </form>
             <aside className="admin-bunny-stats">
               <div><span>CARROTS FED · ALL TIME</span><strong>{formatNumber(dashboard.bunny.totalFeeds)}</strong></div>
               <div><span>FED TODAY · UTC</span><strong>{formatNumber(dashboard.bunny.fedToday)}</strong></div>
-              <div><span>READY TO TRADE</span><strong>{formatNumber(dashboard.bunny.tradeReady)}</strong></div>
+              <div><span>READY FOR FCFS</span><strong>{formatNumber(dashboard.bunny.fcfsReady)}</strong></div>
+              <div><span>READY FOR GTD · PRIVATE</span><strong>{formatNumber(dashboard.bunny.gtdReady)}</strong></div>
+              <div><span>DIED FROM BROKEN STREAK</span><strong>{formatNumber(dashboard.bunny.deadBunnies)}</strong></div>
+              <div><span>RECORDED BUNNY DEATHS</span><strong>{formatNumber(dashboard.bunny.totalDeaths)}</strong></div>
               <div><span>COMPLETED TRADES</span><strong>{formatNumber(dashboard.bunny.totalTrades)}</strong></div>
               <div><span>GTD / FCFS TRADES</span><strong>{formatNumber(dashboard.bunny.gtdTrades)} / {formatNumber(dashboard.bunny.fcfsTrades)}</strong></div>
               <div><span>LONGEST STREAK</span><strong>{formatNumber(dashboard.bunny.longestStreak)}D</strong></div>

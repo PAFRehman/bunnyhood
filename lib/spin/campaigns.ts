@@ -103,6 +103,7 @@ export async function getLatestPrizeCampaign(sql: SpinDb = getDb()) {
 }
 
 export async function startCampaignTask(user: SpinUser, task: TaskType) {
+  await ensureProductionSchema();
   const sql = getDb();
   await enforceRateLimit(`task-start:${user.id}`, 15, 60, sql);
   const campaign = await getActiveCampaign(sql);
@@ -164,6 +165,7 @@ export async function startCampaignTask(user: SpinUser, task: TaskType) {
 }
 
 export async function claimCampaignTask(user: SpinUser, task: TaskType) {
+  await ensureProductionSchema();
   const sql = getDb();
   await enforceRateLimit(`task-claim:${user.id}`, 15, 60, sql);
   const campaign = await getActiveCampaign(sql);
@@ -242,6 +244,7 @@ export async function claimCampaignTask(user: SpinUser, task: TaskType) {
 }
 
 export async function settleMaturedCampaignTasks(user: SpinUser) {
+  await ensureProductionSchema();
   const campaign = await getActiveCampaign();
   if (!campaign) return [] as TaskType[];
 

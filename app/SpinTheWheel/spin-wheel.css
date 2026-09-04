@@ -239,6 +239,8 @@
 .bunny-level-3 .bunny-portrait img { filter: saturate(1.08) brightness(.96); transform: scale(1.025); }
 .bunny-level-4 .bunny-portrait { box-shadow: 0 28px 65px rgba(0,0,0,.48), 0 0 75px rgba(202,255,0,.38), 0 0 0 7px rgba(202,255,0,.08); }
 .bunny-level-4 .bunny-portrait img { filter: saturate(1.16) contrast(1.03); transform: scale(1.04); }
+.feed-the-bunny.bunny-starved .bunny-portrait { box-shadow: 0 28px 65px rgba(0,0,0,.65), 0 0 55px rgba(255,91,74,.16); animation: bunnyStarved 1.8s ease-in-out infinite; }
+.feed-the-bunny.bunny-starved .bunny-portrait img { filter: grayscale(1) saturate(0) brightness(.28); opacity: .66; }
 .bunny-scan { position: absolute; inset: 0; background: linear-gradient(transparent 47%, rgba(202,255,0,.24) 50%, transparent 53%); background-size: 100% 170%; mix-blend-mode: screen; animation: bunnyScan 4.6s linear infinite; pointer-events: none; }
 .bunny-crown { position: absolute; z-index: 2; top: 15px; left: 50%; display: none; width: 105px; height: 60px; align-items: flex-end; justify-content: center; filter: drop-shadow(0 0 18px rgba(202,255,0,.6)); transform: translateX(-50%); }
 .bunny-level-4 .bunny-crown { display: flex; animation: bunnyCrown .7s cubic-bezier(.2,.9,.2,1) both; }
@@ -259,6 +261,9 @@
 .is-feeding .bunny-portrait { animation: bunnyChew .28s ease-in-out 4 .75s, bunnyEvolutionPulse .65s ease-out 1.2s; }
 .is-feeding .bunny-habitat { animation: habitatFeed 1.8s ease-out both; }
 .bunny-control-deck { display: flex; flex-direction: column; justify-content: center; border: 1px solid rgba(255,255,255,.13); border-radius: 34px; background: linear-gradient(155deg, rgba(255,255,255,.055), rgba(255,255,255,.012)); padding: clamp(28px, 5vw, 58px); }
+.bunny-hunger-alert { display: flex; flex-direction: column; gap: 7px; margin-bottom: 25px; border: 1px solid rgba(255,91,74,.48); border-radius: 16px; background: rgba(255,91,74,.08); padding: 16px 18px; }
+.bunny-hunger-alert strong { color: #ff8f84; font-size: 12px; letter-spacing: -.01em; }
+.bunny-hunger-alert span { color: #a7928f; font-size: 9px; line-height: 1.5; }
 .bunny-streak-head { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
 .bunny-streak-head > div { display: flex; flex-direction: column; border-top: 1px solid rgba(255,255,255,.14); padding-top: 18px; }
 .bunny-streak-head span { color: #747c6f; font-size: 7px; font-weight: 950; letter-spacing: .16em; }
@@ -282,14 +287,15 @@
 .bunny-feed-meta span { font-size: 7px; font-weight: 950; letter-spacing: .15em; }
 .bunny-feed-meta strong { color: var(--paper); font-size: 9px; letter-spacing: .09em; }
 .bunny-feed-meta small { grid-column: 1 / -1; font-size: 8px; }
-.bunny-trade-zone { border: 1px solid rgba(202,255,0,.32); border-radius: 22px; background: rgba(202,255,0,.055); padding: clamp(22px, 4vw, 36px); }
+.bunny-trade-zone { margin-top: 24px; border: 1px solid rgba(202,255,0,.32); border-radius: 22px; background: rgba(202,255,0,.055); padding: clamp(22px, 4vw, 36px); }
 .bunny-trade-zone > span { color: var(--lime); font-size: 7px; font-weight: 950; letter-spacing: .18em; }
 .bunny-trade-zone h3 { margin: 8px 0 11px; font-size: clamp(35px, 4vw, 57px); letter-spacing: -.055em; }
 .bunny-trade-zone p { margin: 0; color: #8c9486; font-size: 11px; line-height: 1.55; }
 .bunny-trade-zone > div { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 23px; }
 .bunny-trade-zone button { min-height: 55px; border: 1px solid var(--lime); border-radius: 999px; background: var(--lime); color: var(--ink); cursor: pointer; font-size: 8px; font-weight: 950; letter-spacing: .08em; }
-.bunny-trade-zone button:last-child { background: transparent; color: var(--lime); }
+.bunny-trade-zone button + button { background: transparent; color: var(--lime); }
 .bunny-trade-zone button:disabled { cursor: default; opacity: .35; }
+.bunny-keep-evolving { display: block; margin: 18px 0 0; color: #8d967f; font-size: 8px; font-weight: 950; letter-spacing: .11em; line-height: 1.5; text-align: center; }
 .bunny-trade-celebration { background: radial-gradient(circle at 50% 43%, rgba(202,255,0,.27), transparent 35%), repeating-conic-gradient(from 0deg, rgba(202,255,0,.025) 0 5deg, transparent 5deg 10deg), #030502; }
 @keyframes bunnyOrbit { to { transform: rotate(360deg); } }
 @keyframes bunnyHalo { to { opacity: .5; transform: scale(1.06); } }
@@ -301,6 +307,7 @@
 @keyframes bunnyChew { 50% { transform: translateY(-4px) scale(1.025,.97); } }
 @keyframes bunnyEvolutionPulse { 50% { box-shadow: 0 0 0 18px rgba(202,255,0,.12), 0 0 110px rgba(202,255,0,.5); transform: scale(1.05); } }
 @keyframes habitatFeed { 45% { border-color: var(--lime); box-shadow: inset 0 0 100px rgba(202,255,0,.08), 0 0 75px rgba(202,255,0,.2); } }
+@keyframes bunnyStarved { 0%,100% { transform: translateX(0); } 48% { transform: translateX(0); } 50% { transform: translateX(-2px); } 52% { transform: translateX(2px); } 54% { transform: translateX(0); } }
 
 .hood-shop { position: relative; isolation: isolate; overflow: hidden; padding: 110px clamp(20px, 6vw, 92px) 125px; border-block: 1px solid rgba(202,255,0,.24); background: radial-gradient(circle at 85% 12%, rgba(202,255,0,.16), transparent 30%), #070906; }
 .hood-shop::before { position: absolute; z-index: -1; top: -360px; right: -260px; width: 780px; height: 780px; border: 1px solid rgba(202,255,0,.14); border-radius: 50%; content: ""; box-shadow: 0 0 0 80px rgba(202,255,0,.018), 0 0 0 160px rgba(202,255,0,.012); }
@@ -315,6 +322,11 @@
 .shop-products { display: grid; max-width: 1440px; grid-template-columns: 1fr 1fr; gap: 16px; margin: auto; }
 .shop-product { position: relative; display: grid; min-height: 470px; grid-template-columns: 1fr auto; grid-template-rows: auto 1fr auto; gap: 25px; overflow: hidden; border: 1px solid rgba(255,255,255,.14); border-radius: 28px; background: linear-gradient(145deg, rgba(255,255,255,.055), rgba(255,255,255,.012)); padding: clamp(25px, 4vw, 48px); transition: border-color 180ms ease, transform 180ms ease; }
 .shop-product:hover { border-color: rgba(202,255,0,.48); transform: translateY(-4px); }
+.shop-carrot { grid-column: 1 / -1; min-height: 330px; background: radial-gradient(circle at 88% 45%, rgba(255,139,22,.18), transparent 24%), linear-gradient(145deg, rgba(202,255,0,.075), rgba(255,255,255,.012)); }
+.shop-carrot::before { position: absolute; right: 7%; bottom: -22px; content: "🥕"; font-size: clamp(120px, 18vw, 250px); filter: drop-shadow(0 22px 35px rgba(0,0,0,.45)); opacity: .9; transform: rotate(17deg); }
+.shop-carrot > * { position: relative; z-index: 1; }
+.shop-carrot h3 { font-size: clamp(58px, 8vw, 105px); }
+.shop-carrot.bunny-starved { border-color: rgba(255,91,74,.35); }
 .shop-product::after { position: absolute; top: -65px; right: -40px; color: rgba(202,255,0,.04); content: "BH"; font-size: 210px; font-weight: 1000; letter-spacing: -.13em; pointer-events: none; }
 .shop-product-index { position: absolute; top: 26px; right: 30px; color: rgba(202,255,0,.48); font-size: 10px; font-weight: 900; letter-spacing: .18em; }
 .shop-product > div:nth-child(2) { grid-column: 1 / -1; align-self: end; }
@@ -476,10 +488,10 @@
 .admin-card form { margin-top: 28px; }
 .admin-field { margin-bottom: 19px; }
 .admin-field label { display: block; margin-bottom: 8px; color: var(--lime); font-size: 8px; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; }
-.admin-field input, .admin-field textarea { width: 100%; min-height: 55px; border: 1px solid rgba(255,255,255,.16); border-radius: 12px; outline: none; background: #080a07; color: var(--paper); padding: 0 16px; }
+.admin-field input, .admin-field textarea, .admin-field select { width: 100%; min-height: 55px; border: 1px solid rgba(255,255,255,.16); border-radius: 12px; outline: none; background: #080a07; color: var(--paper); padding: 0 16px; }
 .admin-field textarea { resize: vertical; padding-top: 15px; font: inherit; line-height: 1.5; }
 .admin-field small { display: block; margin-top: 7px; color: #737b6e; font-size: 8px; line-height: 1.45; }
-.admin-field input:disabled { cursor: not-allowed; opacity: .45; }
+.admin-field input:disabled, .admin-field select:disabled { cursor: not-allowed; opacity: .45; }
 .admin-new-campaign-toggle { display: grid; grid-template-columns: auto 1fr; align-items: start; gap: 12px; margin: 0 0 22px; border: 1px solid rgba(202,255,0,.2); border-radius: 14px; background: rgba(202,255,0,.035); padding: 15px; cursor: pointer; }
 .admin-new-campaign-toggle input { width: 17px; height: 17px; margin-top: 2px; accent-color: var(--lime); }
 .admin-new-campaign-toggle span { display: flex; flex-direction: column; gap: 5px; }
@@ -509,6 +521,10 @@
 .admin-engagement-control { margin: 0 0 18px; }
 .admin-engagement-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(310px, .75fr); gap: 18px; }
 .admin-engagement-layout > form { border: 1px solid rgba(202,255,0,.15); border-radius: 16px; background: #090c08; padding: 23px; }
+.admin-bunny-danger-toggle { border-color: rgba(255,91,74,.25); background: rgba(255,91,74,.04); }
+.admin-private-gtd { margin: 24px 0; border: 1px solid rgba(202,255,0,.2); border-radius: 16px; background: rgba(202,255,0,.025); padding: 19px; }
+.admin-private-gtd > p { margin: 0 0 15px; color: var(--lime); font-size: 7px; font-weight: 950; letter-spacing: .17em; }
+.admin-private-gtd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .admin-bunny-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .admin-bunny-stats div { display: flex; min-width: 0; flex-direction: column; justify-content: center; gap: 8px; border: 1px solid rgba(255,255,255,.1); border-radius: 14px; background: #090c08; padding: 18px; }
 .admin-bunny-stats span { color: #70786b; font-size: 7px; font-weight: 900; letter-spacing: .11em; }
@@ -694,6 +710,7 @@
   .admin-panel-heading { align-items: flex-start; flex-direction: column; }
   .admin-shop-form { grid-template-columns: 1fr; }
   .admin-shop-form > button { grid-column: 1; }
+  .admin-private-gtd-grid { grid-template-columns: 1fr; }
   .admin-bunny-stats { grid-template-columns: 1fr 1fr; }
   .spin-admin-brand > div { gap: 12px; }
   .admin-live { display: none; }

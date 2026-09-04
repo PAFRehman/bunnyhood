@@ -315,6 +315,10 @@ export function SpinWheelApp() {
   }, [loadState, state?.bunny?.nextFeedAt]);
 
   const claimed = useMemo(() => new Set(state?.claimedTasks ?? []), [state?.claimedTasks]);
+  const visibleTasks = useMemo(
+    () => TASKS.filter((task) => !((task.id === "follow" || task.id === "notifications") && claimed.has(task.id))),
+    [claimed],
+  );
   const referralLink = state?.referral?.code
     ? `${origin}/SpinTheWheel?ref=${encodeURIComponent(state.referral.code)}`
     : `${origin}/SpinTheWheel`;
@@ -411,7 +415,9 @@ export function SpinWheelApp() {
         body: JSON.stringify({ task }),
       });
       if (started.alreadyClaimed) {
-        setMessage("This task was already completed for the current round.");
+        setMessage(task === "follow" || task === "notifications"
+          ? "This one-time task is already completed for your account."
+          : "This task was already completed for the current round.");
         await loadState();
       } else {
         scheduleTaskRecovery(task, started.readyAt, started.waitMs);
@@ -488,13 +494,17 @@ export function SpinWheelApp() {
     setBunnyAnimating(true);
     setMessage("");
     try {
-      const reply = await requestJson<{ bunny: BunnyUiState; pointsSpent: number }>("/api/spin/bunny/feed", {
+      const reply = await requestJson<{ bunny: BunnyUiState; pointsSpent: number; startedNewCycleAfterDeath: boolean }>("/api/spin/bunny/feed", {
         method: "POST",
         body: JSON.stringify({ idempotencyKey: crypto.randomUUID() }),
       });
-      setMessage(reply.bunny.tradeReady
-        ? "Your Bunny is fully evolved. GTD and FCFS trading is now unlocked."
-        : `Carrot delivered. Day ${reply.bunny.streakDays} of the streak is complete.`);
+      setMessage(reply.startedNewCycleAfterDeath
+        ? "Your previous Bunny died from hunger. This carrot started a fresh evolution cycle at day 1."
+        : reply.bunny.gtdEligible
+          ? "Carrot delivered. A rare evolution exchange is now unlocked below."
+          : reply.bunny.fcfsEligible
+            ? "Carrot delivered. FCFS selling is unlocked—you can sell now or keep evolving."
+            : `Carrot delivered. Day ${reply.bunny.streakDays} of the evolution is complete.`);
       await loadState();
       if (bunnyAnimationTimer.current) window.clearTimeout(bunnyAnimationTimer.current);
       bunnyAnimationTimer.current = window.setTimeout(() => setBunnyAnimating(false), 1_900);
@@ -508,8 +518,9 @@ export function SpinWheelApp() {
   }
 
   async function tradeBunny(rewardType: ShopSpotType) {
-    if (!state?.bunny?.tradeReady || bunnyBusy) return;
-    if (!window.confirm(`Trade this evolved Bunny for ${rewardType}? This begins a new Bunny cycle.`)) return;
+    const eligible = rewardType === "GTD" ? state?.bunny?.gtdEligible : state?.bunny?.fcfsEligible;
+    if (!eligible || bunnyBusy) return;
+    if (!window.confirm(`Sell this evolved Bunny for ${rewardType}? This begins a new Bunny cycle.`)) return;
     setBunnyBusy(rewardType);
     setMessage("");
     try {
@@ -725,7 +736,7 @@ export function SpinWheelApp() {
                   <a href={state.campaign.tweetUrl} target="_blank" rel="noreferrer">Open post <span aria-hidden="true">X</span></a>
                 </header>
                 <div className="spin-task-list">
-                  {TASKS.map((task) => (
+                  {visibleTasks.map((task) => (
                     <article className={claimed.has(task.id) ? "claimed" : ""} key={task.id}>
                       <div><span>{task.eyebrow}</span><h3>{task.title}</h3><p>{task.copy}</p></div>
                       <div className="spin-task-actions">
@@ -753,18 +764,24 @@ export function SpinWheelApp() {
 
             {state.bunny && <FeedTheBunny bunny={state.bunny} points={state.user.points} roleWins={state.user.roleWins} busy={bunnyBusy} animating={bunnyAnimating} onFeed={feedBunny} onTrade={tradeBunny} />}
 
-            {state.campaign && (
+            {state.bunny && (
               <section className="hood-shop" id="hood-shop">
                 <div className="shop-noise" aria-hidden="true" />
-                <header><div><p className="section-kicker">POINTS MARKET · ROUND {String(state.campaign.roundNumber).padStart(2, "0")}</p><h2>THE HOOD<br /><em>SHOP.</em></h2></div><div className="shop-balance"><span>AVAILABLE BALANCE</span><strong>{state.user.points}</strong><small>{state.user.pointsEarned} earned · {state.user.pointsSpent} spent</small></div></header>
+                <header><div><p className="section-kicker">{state.campaign ? `POINTS MARKET · ROUND ${String(state.campaign.roundNumber).padStart(2, "0")}` : "DAILY POINTS MARKET"}</p><h2>THE HOOD<br /><em>SHOP.</em></h2></div><div className="shop-balance"><span>AVAILABLE BALANCE</span><strong>{state.user.points}</strong><small>{state.user.pointsEarned} earned · {state.user.pointsSpent} spent</small></div></header>
                 <div className="shop-products">
+                  <article className={`shop-product shop-carrot ${state.bunny.diedFromHunger ? "bunny-starved" : ""}`}>
+                    <div className="shop-product-index">01 · DAILY</div>
+                    <div><span>FEED THE BUNNYHOOD</span><h3>CARROT</h3><p>Buy today&apos;s carrot and feed your Bunny instantly. One carrot is available per connected user each UTC day.</p></div>
+                    <div className="shop-price"><strong>{state.bunny.carrotCost}</strong><span>POINTS</span></div>
+                    <div className="shop-stock"><span>DAILY STATUS</span><strong>{state.bunny.fedToday ? "FED" : "READY"}</strong></div>
+                    <button type="button" disabled={!state.bunny.canFeed || state.user.points < state.bunny.carrotCost || bunnyBusy !== null} onClick={feedBunny}>{bunnyBusy === "feed" ? "FEEDING…" : state.bunny.fedToday ? "FED TODAY · RETURNS 00:00 UTC" : state.user.points < state.bunny.carrotCost ? `NEED ${state.bunny.carrotCost - state.user.points} MORE POINT${state.bunny.carrotCost - state.user.points === 1 ? "" : "S"}` : "BUY CARROT & FEED NOW"}</button>
+                  </article>
                   {(state.shop ?? []).map((item) => {
                     const roleFull = item.spotType === "GTD" ? state.user!.roleWins.GTD >= 3 : state.user!.roleWins.FCFS1 >= 3;
                     const disabled = item.purchasedByUser || item.remaining < 1 || state.user!.points < item.pointsPrice || roleFull || Boolean(shopBusy);
                     const status = item.purchasedByUser ? "SECURED" : item.remaining < 1 ? "SOLD OUT" : roleFull ? "ROLE LIMIT REACHED" : state.user!.points < item.pointsPrice ? `NEED ${item.pointsPrice - state.user!.points} MORE` : "CLAIM WITH POINTS";
-                    return <article className={`shop-product shop-${item.spotType.toLowerCase()}`} key={item.spotType}><div className="shop-product-index">{item.spotType === "GTD" ? "01" : "02"}</div><div><span>{item.spotType === "GTD" ? "GUARANTEED WHITELIST" : "FIRST COME · FIRST SERVED"}</span><h3>{item.spotType}</h3><p>{item.spotType === "GTD" ? "Lock a guaranteed whitelist position from this campaign pool." : "Secure an FCFS access position using points you earned in the Hood."}</p></div><div className="shop-price"><strong>{item.pointsPrice}</strong><span>POINTS</span></div><div className="shop-stock"><span>UP FOR GRABS</span><strong>{item.remaining} <small>/ {item.totalCount}</small></strong></div><button type="button" disabled={disabled} onClick={() => purchaseSpot(item.spotType, item.pointsPrice)}>{shopBusy === item.spotType ? "SECURING…" : status}</button></article>;
+                    return <article className={`shop-product shop-${item.spotType.toLowerCase()}`} key={item.spotType}><div className="shop-product-index">{item.spotType === "GTD" ? "02" : "03"}</div><div><span>{item.spotType === "GTD" ? "GUARANTEED WHITELIST" : "FIRST COME · FIRST SERVED"}</span><h3>{item.spotType}</h3><p>{item.spotType === "GTD" ? "Lock a guaranteed whitelist position from this campaign pool." : "Secure an FCFS access position using points you earned in the Hood."}</p></div><div className="shop-price"><strong>{item.pointsPrice}</strong><span>POINTS</span></div><div className="shop-stock"><span>UP FOR GRABS</span><strong>{item.remaining} <small>/ {item.totalCount}</small></strong></div><button type="button" disabled={disabled} onClick={() => purchaseSpot(item.spotType, item.pointsPrice)}>{shopBusy === item.spotType ? "SECURING…" : status}</button></article>;
                   })}
-                  {(state.shop ?? []).length === 0 && <div className="shop-closed"><strong>SHOP STOCK IS BEING LOADED.</strong><span>Your points stay in your balance.</span></div>}
                 </div>
               </section>
             )}
@@ -884,7 +901,7 @@ export function SpinWheelApp() {
         {message && <div className="spin-message" role="status">{message}</div>}
       </section>
       {shopCelebration && <div className="shop-celebration" role="dialog" aria-modal="true" aria-label={`${shopCelebration.spotType} secured`}><div className="shop-confetti" aria-hidden="true">{Array.from({ length: 18 }, (_, index) => <i key={index} style={{ "--confetti": index } as CSSProperties} />)}</div><div className="shop-celebration-ring"><span>BH</span></div><p>ACCESS ACQUIRED</p><h2>{shopCelebration.spotType}<br /><em>SECURED.</em></h2><strong>{shopCelebration.pointsSpent} POINTS USED</strong><small>Your permanent win is saved. Add its receiving wallet in your Hood profile.</small><button type="button" onClick={() => { setShopCelebration(null); document.getElementById("spin-profile")?.scrollIntoView({ behavior: "smooth" }); }}>Add receiving wallet</button></div>}
-      {bunnyCelebration && <div className="shop-celebration bunny-trade-celebration" role="dialog" aria-modal="true" aria-label={`${bunnyCelebration} Bunny trade complete`}><div className="shop-confetti" aria-hidden="true">{Array.from({ length: 18 }, (_, index) => <i key={index} style={{ "--confetti": index } as CSSProperties} />)}</div><div className="shop-celebration-ring"><span>BH</span></div><p>EVOLUTION TRADED</p><h2>{bunnyCelebration}<br /><em>IS YOURS.</em></h2><strong>NEW BUNNY CYCLE UNLOCKED</strong><small>Your permanent win is saved. Add its receiving wallet in your Hood profile.</small><button type="button" onClick={() => { setBunnyCelebration(null); document.getElementById("spin-profile")?.scrollIntoView({ behavior: "smooth" }); }}>Add receiving wallet</button></div>}
+      {bunnyCelebration && <div className="shop-celebration bunny-trade-celebration" role="dialog" aria-modal="true" aria-label={`${bunnyCelebration} Bunny sale complete`}><div className="shop-confetti" aria-hidden="true">{Array.from({ length: 18 }, (_, index) => <i key={index} style={{ "--confetti": index } as CSSProperties} />)}</div><div className="shop-celebration-ring"><span>BH</span></div><p>EVOLUTION SOLD</p><h2>{bunnyCelebration}<br /><em>IS YOURS.</em></h2><strong>NEW BUNNY CYCLE UNLOCKED</strong><small>Your permanent win is saved. Add its receiving wallet in your Hood profile.</small><button type="button" onClick={() => { setBunnyCelebration(null); document.getElementById("spin-profile")?.scrollIntoView({ behavior: "smooth" }); }}>Add receiving wallet</button></div>}
     </>
   );
 }

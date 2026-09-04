@@ -37,6 +37,7 @@ const migration = [
   "013_wallet_eligibility_checker.sql",
   "014_spin_points_shop.sql",
   "015_feed_the_bunny.sql",
+  "016_bunny_evolution_rules.sql",
 ].map((name) => readFileSync(join(root, "db/migrations", name), "utf8")).join("\n");
 const wheel = readFileSync(join(root, "lib/spin/wheel.ts"), "utf8");
 const campaigns = readFileSync(join(root, "lib/spin/campaigns.ts"), "utf8");
@@ -60,6 +61,7 @@ const shopPurchaseRoute = readFileSync(join(root, "app/api/spin/shop/purchase/ro
 const shopPostRoute = readFileSync(join(root, "app/api/spin/post-task/route.ts"), "utf8");
 const shopAdminRoute = readFileSync(join(root, "app/api/admin/spin/shop/route.ts"), "utf8");
 const bunny = readFileSync(join(root, "lib/spin/bunny.ts"), "utf8");
+const bunnyApp = readFileSync(join(root, "app/SpinTheWheel/feed-the-bunny.tsx"), "utf8");
 const bunnyFeedRoute = readFileSync(join(root, "app/api/spin/bunny/feed/route.ts"), "utf8");
 const bunnyTradeRoute = readFileSync(join(root, "app/api/spin/bunny/trade/route.ts"), "utf8");
 const engagementAdminRoute = readFileSync(join(root, "app/api/admin/spin/engagement-settings/route.ts"), "utf8");
@@ -247,15 +249,21 @@ if (!/requireSessionUser\(request, true\)/.test(shopPurchaseRoute) || !/requireS
 if (!/requireSpinAdmin/.test(shopAdminRoute) || !/assertSameOrigin/.test(shopAdminRoute) || !/recordAdminAction/.test(shopAdminRoute)) failures.push("Points-shop controls are not protected and audited in admin.");
 if (!/Top 100 point balances/.test(adminApp) || !/topPointUsers/.test(adminData) || !/limit 100/.test(adminData)) failures.push("Private point analytics and top-100 balances are missing.");
 if (!/post_task_text/.test(migration) || !/post_task_requires_tag/.test(migration) || !/setEngagementSettings/.test(source) || !/Require the @BunnysHood tag/.test(adminApp)) failures.push("Admin X-post text or tag-requirement controls are incomplete.");
-if (!/settings\.postTaskRequiresTag/.test(spinShop) || !/X_TAG_MISSING/.test(spinShop)) failures.push("The verified X-post task does not honor the admin tag requirement.");
+if (!/(?:settings|liveSettings)\.postTaskRequiresTag/.test(spinShop) || !/X_TAG_MISSING/.test(spinShop)) failures.push("The verified X-post task does not honor the admin tag requirement.");
 if (!/create table if not exists spin_bunny_profiles/.test(migration) || !/create table if not exists spin_bunny_feed_months/.test(migration) || !/create table if not exists spin_bunny_trades/.test(migration)) failures.push("Permanent Bunny evolution ledgers are missing.");
 if (!/primary key \(user_id, feed_month\)/.test(migration) || !/feed_bits bigint/.test(migration) || !/points_spent = feeds_count \* 3/.test(migration) || !/clock_timestamp\(\) at time zone 'UTC'/.test(bunny)) failures.push("Compact daily UTC carrot history is not protected against duplicates or incorrect pricing.");
 if (!/points - points_spent >=/.test(bunny) || !/BUNNY_CARROT_COST = 3/.test(bunny) || !/idempotency_key/.test(`${migration}\n${bunny}`)) failures.push("Bunny feeding can overspend, misprice, or replay.");
 if (!/source in \('wheel', 'shop', 'bunny'\)/.test(migration) || !/bunny_trade_id/.test(`${migration}\n${bunny}`) || !/ROLE_LIMIT_REACHED/.test(bunny)) failures.push("Evolved Bunny trades do not create capped permanent wallet-ready wins.");
 if (!/requireSessionUser\(request, true\)/.test(bunnyFeedRoute) || !/requireSessionUser\(request, true\)/.test(bunnyTradeRoute) || !/assertSameOrigin/.test(`${bunnyFeedRoute}\n${bunnyTradeRoute}`)) failures.push("Bunny mutations are missing authenticated CSRF protection.");
 if (!/requireSpinAdmin/.test(engagementAdminRoute) || !/assertSameOrigin/.test(engagementAdminRoute) || !/recordAdminAction/.test(engagementAdminRoute)) failures.push("Bunny and post settings are not protected and audited in admin.");
-if (!/FEED THE/.test(source) || !/TRADE FOR GTD/.test(source) || !/TRADE FOR FCFS/.test(source) || !/00:00 UTC/.test(source)) failures.push("The live Bunny feeding, evolution, or role-trade experience is incomplete.");
-if (!/totalFeeds/.test(adminData) || !/READY TO TRADE/.test(adminApp) || /dashboard\.bunny/.test(wheelApp)) failures.push("Bunny analytics are not private to the admin panel.");
+if (!/permanent_task_claimed_bits/.test(migration) || !/PERMANENT_TASK_BITS/.test(progress) || !/366503875925/.test(migration) || !/733007751850/.test(migration)) failures.push("Follow and notification rewards are not permanent or historical claims are not backfilled.");
+if (!/visibleTasks/.test(wheelApp) || !/task\.id === "follow" \|\| task\.id === "notifications"/.test(wheelApp)) failures.push("Completed one-time X tasks are not hidden from returning users.");
+if (!/shop-carrot/.test(wheelApp) || !/BUY CARROT & FEED NOW/.test(wheelApp) || !/BUNNY_CARROT_COST = 3/.test(bunny)) failures.push("The daily three-point carrot is not available from Hood Shop.");
+if (!/bunny_death_on_break/.test(migration) || !/diedFromHunger/.test(bunny) || !/startedNewCycleAfterDeath/.test(bunny) || !/died from hunger/i.test(bunnyApp)) failures.push("The optional broken-streak Bunny death and reset flow is incomplete.");
+if (!/canFeed: !fedToday/.test(bunny) || !/KEEP EVOLVING/.test(bunnyApp) || !/SELL BUNNY FOR FCFS/.test(bunnyApp)) failures.push("Users cannot keep evolving or sell an eligible Bunny for FCFS.");
+if (!/bunny_gtd_requirement_mode/.test(migration) || !/qualifiesForGtd/.test(bunny) || !/bunnyGtdPointsRequired/.test(adminApp) || !/bunny\.gtdEligible && <button/.test(bunnyApp)) failures.push("Private GTD day/point rules are missing or exposed before eligibility.");
+if (!/FEED THE/.test(source) || !/SELL BUNNY FOR GTD/.test(source) || !/SELL BUNNY FOR FCFS/.test(source) || !/00:00 UTC/.test(source)) failures.push("The live Bunny feeding, evolution, or role-sale experience is incomplete.");
+if (!/totalFeeds/.test(adminData) || !/READY FOR FCFS/.test(adminApp) || !/READY FOR GTD · PRIVATE/.test(adminApp) || !/totalDeaths/.test(adminData) || /dashboard\.bunny/.test(wheelApp)) failures.push("Bunny analytics are not complete and private to the admin panel.");
 if (!/anonymousRequestKey/.test(checkerPublicRoute) || !/enforceRateLimit/.test(checkerPublicRoute) || /getCheckerStats|listCheckerWallets/.test(checkerPublicRoute)) failures.push("The public checker is not throttled or exposes private counts/list data.");
 if (!/requireSpinAdmin/.test(checkerAdminRoute) || !/assertSameOrigin/.test(checkerAdminRoute) || !/verifyAdminTicket/.test(checkerAdminPage)) failures.push("The checker admin page or mutation API is not protected by the existing admin session.");
 if (!/GTD WALLETS ADDED/.test(checkerAdminApp) || !/FCFS WALLETS ADDED/.test(checkerAdminApp) || !/stats\.gtd/.test(checkerAdminApp) || !/stats\.fcfs/.test(checkerAdminApp)) failures.push("Private GTD/FCFS wallet counts are missing from the checker admin.");
