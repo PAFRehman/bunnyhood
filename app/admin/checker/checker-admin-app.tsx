@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { parseCheckerImportDraft } from "@/lib/checker/import";
 
 type CheckerStats = { total: number; gtd: number; fcfs: number };
 type CheckerRow = {
@@ -12,6 +13,19 @@ type CheckerRow = {
   updatedAt: string;
 };
 type CheckerAdminData = { stats: CheckerStats; rows: CheckerRow[] };
+type CheckerImportPreview = {
+  gtd: number;
+  fcfs: number;
+  validUnique: number;
+  fixedPrefixes: number;
+  duplicatesRemoved: number;
+  ignoredRows: number;
+  crossListConflicts: number;
+  alreadyExists: number;
+  unchanged: number;
+  statusChanges: number;
+  newWallets: number;
+};
 
 async function adminRequest<T>(url: string, init?: RequestInit) {
   const response = await fetch(url, { ...init, cache: "no-store" });
@@ -25,11 +39,6 @@ async function adminRequest<T>(url: string, init?: RequestInit) {
 }
 
 const numberFormat = new Intl.NumberFormat("en-US");
-const ADDRESS_MATCH = /0x[0-9a-fA-F]{40}/g;
-
-function draftCount(value: string) {
-  return new Set(value.match(ADDRESS_MATCH)?.map((wallet) => wallet.toLowerCase()) ?? []).size;
-}
 
 export function CheckerAdminApp() {
   const router = useRouter();
@@ -39,12 +48,20 @@ export function CheckerAdminApp() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
+  const [previewState, setPreviewState] = useState<{
+    source: string;
+    preview: CheckerImportPreview | null;
+  } | null>(null);
   const [message, setMessage] = useState("");
 
-  const draft = useMemo(() => ({
-    gtd: draftCount(gtdWallets),
-    fcfs: draftCount(fcfsWallets),
-  }), [fcfsWallets, gtdWallets]);
+  const draft = useMemo(
+    () => parseCheckerImportDraft(gtdWallets, fcfsWallets),
+    [fcfsWallets, gtdWallets],
+  );
+  const previewSource = `${gtdWallets}\u0000${fcfsWallets}`;
+  const currentPreviewState = previewState?.source === previewSource ? previewState : null;
+  const preview = currentPreviewState?.preview ?? null;
+  const previewing = draft.validUnique > 0 && currentPreviewState === null;
 
   const goToLogin = useCallback(() => {
     router.push("/admin/spin?next=/admin/checker");
@@ -79,23 +96,62 @@ export function CheckerAdminApp() {
     return () => window.clearTimeout(timer);
   }, [message]);
 
+  useEffect(() => {
+    if (!draft.validUnique) return;
+
+    const controller = new AbortController();
+    const source = previewSource;
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await adminRequest<{ preview: CheckerImportPreview }>("/api/admin/checker", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ operation: "preview", gtdWallets, fcfsWallets }),
+          signal: controller.signal,
+        });
+        setPreviewState({ source, preview: result.preview });
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        if ((error as Error & { status?: number }).status === 401) {
+          goToLogin();
+          return;
+        }
+        setPreviewState({ source, preview: null });
+        setMessage(error instanceof Error ? error.message : "The import preview could not be checked.");
+      }
+    }, 400);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [draft.validUnique, fcfsWallets, goToLogin, gtdWallets, previewSource]);
+
   async function importWallets(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!draft.gtd && !draft.fcfs) {
-      setMessage("Paste at least one valid GTD or FCFS wallet.");
+    if (!draft.validUnique) {
+      setMessage("Paste at least one valid GTD or FCFS wallet column.");
       return;
     }
     setBusy(true);
     setMessage("");
     try {
-      const result = await adminRequest<{ imported: number; stats: CheckerStats }>("/api/admin/checker", {
+      const result = await adminRequest<{
+        saved: number;
+        stats: CheckerStats;
+        preview: CheckerImportPreview;
+      }>("/api/admin/checker", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ gtdWallets, fcfsWallets }),
+        body: JSON.stringify({ operation: "import", gtdWallets, fcfsWallets }),
       });
       setGtdWallets("");
       setFcfsWallets("");
-      setMessage(`${numberFormat.format(result.imported)} wallet${result.imported === 1 ? "" : "s"} saved. Checker totals updated.`);
+      setMessage(
+        `${numberFormat.format(result.preview.newWallets)} new added · ` +
+        `${numberFormat.format(result.preview.alreadyExists)} already existed · ` +
+        `${numberFormat.format(result.preview.statusChanges)} status change${result.preview.statusChanges === 1 ? "" : "s"}.`,
+      );
       await load();
     } catch (error) {
       if ((error as Error & { status?: number }).status === 401) {
@@ -164,7 +220,7 @@ export function CheckerAdminApp() {
           <p>HIDDEN CONTROL ROOM</p>
           <h1>WALLET<br /><em>INDEX.</em></h1>
         </div>
-        <p>Paste complete EVM wallets into the correct list. Existing wallets stay saved; importing a wallet again updates its GTD or FCFS status.</p>
+        <p>Paste raw wallet columns from any sheet. Headers and extra columns are ignored, missing 0x prefixes are repaired, duplicates are removed, and every import is checked against the saved list first.</p>
       </section>
 
       {!data ? <div className="checker-admin-loading">LOADING PRIVATE WALLET INDEX…</div> : (
@@ -178,20 +234,42 @@ export function CheckerAdminApp() {
           <form className="checker-admin-import" onSubmit={importWallets}>
             <div className="checker-admin-import-head">
               <div><span>01 / BULK IMPORT</span><h2>ADD OR UPDATE WALLETS.</h2></div>
-              <p>One wallet per line is recommended. Commas and spaces also work. The same wallet cannot be submitted in both boxes.</p>
+              <p>Paste the complete GTD or FCFS column as-is. CSV rows, tabs, labels, blank cells, and extra columns are safe. If a wallet appears in both boxes, GTD is kept.</p>
             </div>
             <div className="checker-admin-import-grid">
               <label>
-                <span><b>GTD WALLETS</b><i>{draft.gtd} detected</i></span>
-                <textarea value={gtdWallets} onChange={(event) => setGtdWallets(event.target.value)} placeholder={"0x1234…\n0xabcd…"} spellCheck={false} disabled={busy} />
+                <span><b>GTD WALLET COLUMN</b><i>{numberFormat.format(draft.gtd)} valid</i></span>
+                <textarea value={gtdWallets} onChange={(event) => setGtdWallets(event.target.value)} placeholder={"wallet,address,notes\n0x1234…\n7a9f… (0x optional)"} spellCheck={false} disabled={busy} />
               </label>
               <label>
-                <span><b>FCFS WALLETS</b><i>{draft.fcfs} detected</i></span>
-                <textarea value={fcfsWallets} onChange={(event) => setFcfsWallets(event.target.value)} placeholder={"0x5678…\n0xef01…"} spellCheck={false} disabled={busy} />
+                <span><b>FCFS WALLET COLUMN</b><i>{numberFormat.format(draft.fcfs)} valid</i></span>
+                <textarea value={fcfsWallets} onChange={(event) => setFcfsWallets(event.target.value)} placeholder={"Paste one column or full spreadsheet rows\n0x5678…\n9bc1… (0x optional)"} spellCheck={false} disabled={busy} />
               </label>
             </div>
-            <button type="submit" disabled={busy || (!draft.gtd && !draft.fcfs)}>
-              {busy ? "SAVING PRIVATE INDEX…" : `SAVE ${numberFormat.format(draft.gtd + draft.fcfs)} WALLETS`}
+            {(draft.validUnique > 0 || previewing) && (
+              <div className="checker-admin-preview" aria-live="polite">
+                <article><span>VALID UNIQUE</span><strong>{numberFormat.format(draft.validUnique)}</strong><small>{numberFormat.format(draft.gtd)} GTD · {numberFormat.format(draft.fcfs)} FCFS</small></article>
+                <article><span>ALREADY EXISTS</span><strong>{previewing ? "…" : numberFormat.format(preview?.alreadyExists ?? 0)}</strong><small>{preview ? `${numberFormat.format(preview.unchanged)} unchanged` : "Checking full database"}</small></article>
+                <article className="new"><span>NEW TO ADD</span><strong>{previewing ? "…" : numberFormat.format(preview?.newWallets ?? 0)}</strong><small>{preview?.statusChanges ? `${numberFormat.format(preview.statusChanges)} status change${preview.statusChanges === 1 ? "" : "s"}` : "No duplicate re-entry"}</small></article>
+                <article><span>AUTO-CLEANED</span><strong>{numberFormat.format(draft.fixedPrefixes + draft.duplicatesRemoved + draft.ignoredRows + draft.crossListConflicts)}</strong><small>{numberFormat.format(draft.fixedPrefixes)} prefixes fixed · {numberFormat.format(draft.duplicatesRemoved)} duplicates</small></article>
+              </div>
+            )}
+            {(draft.ignoredRows > 0 || draft.crossListConflicts > 0) && (
+              <p className="checker-admin-import-note">
+                {draft.ignoredRows > 0 ? `${numberFormat.format(draft.ignoredRows)} row${draft.ignoredRows === 1 ? "" : "s"} without a complete wallet ignored. ` : ""}
+                {draft.crossListConflicts > 0 ? `${numberFormat.format(draft.crossListConflicts)} wallet${draft.crossListConflicts === 1 ? "" : "s"} found in both lists and kept as GTD.` : ""}
+              </p>
+            )}
+            <button type="submit" disabled={busy || previewing || !preview || (preview.newWallets === 0 && preview.statusChanges === 0)}>
+              {busy
+                ? "SAVING PRIVATE INDEX…"
+                : previewing
+                  ? "CHECKING SAVED WALLETS…"
+                  : preview && preview.newWallets === 0 && preview.statusChanges === 0
+                    ? "EVERY WALLET ALREADY EXISTS"
+                    : preview
+                      ? `ADD ${numberFormat.format(preview.newWallets)} NEW${preview.statusChanges ? ` · UPDATE ${numberFormat.format(preview.statusChanges)}` : ""}`
+                      : "PASTE WALLETS TO PREVIEW"}
               <b>↗</b>
             </button>
           </form>

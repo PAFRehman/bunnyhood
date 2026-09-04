@@ -3,11 +3,12 @@ import {
   getCheckerStats,
   listCheckerWallets,
   parseCheckerImport,
+  previewCheckerWallets,
   upsertCheckerWallets,
 } from "@/lib/checker/data";
 import { recordAdminAction } from "@/lib/spin/audit";
 import { requireSpinAdmin } from "@/lib/spin/admin";
-import { assertSameOrigin, json, readJson, routeError } from "@/lib/spin/http";
+import { assertSameOrigin, HttpError, json, readJson, routeError } from "@/lib/spin/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,16 +31,31 @@ export async function POST(request: Request) {
   try {
     requireSpinAdmin(request);
     assertSameOrigin(request);
-    const body = await readJson<{ gtdWallets?: string; fcfsWallets?: string }>(request, 512 * 1024);
-    const entries = parseCheckerImport(body.gtdWallets ?? "", body.fcfsWallets ?? "");
-    const stats = await upsertCheckerWallets(entries);
+    const body = await readJson<{
+      operation?: "preview" | "import";
+      gtdWallets?: string;
+      fcfsWallets?: string;
+    }>(request, 2 * 1024 * 1024);
+    if (body.operation !== "preview" && body.operation !== "import") {
+      throw new HttpError(400, "Choose preview or import.", "BAD_CHECKER_OPERATION");
+    }
+    const draft = parseCheckerImport(body.gtdWallets ?? "", body.fcfsWallets ?? "");
+
+    if (body.operation === "preview") {
+      return json({ ok: true, preview: await previewCheckerWallets(draft) });
+    }
+
+    const result = await upsertCheckerWallets(draft);
     await recordAdminAction("checker_wallets_imported", {
-      imported: entries.length,
-      gtdImported: entries.filter((entry) => entry.eligibilityType === "GTD").length,
-      fcfsImported: entries.filter((entry) => entry.eligibilityType === "FCFS").length,
-      total: stats.total,
+      saved: result.saved,
+      newWallets: result.preview.newWallets,
+      alreadyExists: result.preview.alreadyExists,
+      statusChanges: result.preview.statusChanges,
+      gtdDetected: result.preview.gtd,
+      fcfsDetected: result.preview.fcfs,
+      total: result.stats.total,
     });
-    return json({ ok: true, imported: entries.length, stats });
+    return json({ ok: true, ...result });
   } catch (error) {
     return routeError(error);
   }

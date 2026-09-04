@@ -2,9 +2,14 @@ import "server-only";
 
 import { getDb, inTransaction, type SpinDb } from "@/lib/spin/db";
 import { HttpError } from "@/lib/spin/http";
+import {
+  parseCheckerImportDraft,
+  type CheckerEligibility,
+  type CheckerImportDraft,
+} from "./import";
 import { ensureCheckerSchema } from "./schema";
 
-export type CheckerEligibility = "GTD" | "FCFS";
+export type { CheckerEligibility, CheckerImport, CheckerImportDraft } from "./import";
 
 type CheckerWalletRow = {
   wallet_address: string;
@@ -13,13 +18,15 @@ type CheckerWalletRow = {
   updated_at: Date | string;
 };
 
-export type CheckerImport = {
-  walletAddress: string;
-  eligibilityType: CheckerEligibility;
-};
-
 const MAX_IMPORT_WALLETS = 10_000;
 const EVM_WALLET = /^0x[0-9a-f]{40}$/;
+
+export type CheckerImportPreview = Omit<CheckerImportDraft, "entries"> & {
+  alreadyExists: number;
+  unchanged: number;
+  statusChanges: number;
+  newWallets: number;
+};
 
 export function normalizeCheckerWallet(value: string) {
   return value.trim().toLowerCase();
@@ -39,65 +46,21 @@ export function requireCheckerWallet(value: string) {
   return wallet;
 }
 
-function parseWalletList(
-  value: string,
-  eligibilityType: CheckerEligibility,
-) {
-  const withoutComments = value
-    .split(/\r?\n/)
-    .filter((line) => !line.trim().startsWith("#"))
-    .join("\n");
-
-  const wallets = new Set<string>();
-
-  for (const rawValue of withoutComments.split(/[\s,;]+/)) {
-    const token = rawValue.trim().replace(/^['"]|['"]$/g, "");
-
-    if (
-      !token ||
-      /^(?:wallet|wallet_address|address)$/i.test(token)
-    ) {
-      continue;
-    }
-
-    const wallet = normalizeCheckerWallet(token);
-
-    if (!EVM_WALLET.test(wallet)) {
-      throw new HttpError(
-        400,
-        `${token.slice(0, 22)}${token.length > 22 ? "…" : ""} is not a valid EVM wallet.`,
-        "BAD_CHECKER_IMPORT",
-      );
-    }
-
-    wallets.add(wallet);
-  }
-
-  return [...wallets].map((walletAddress) => ({
-    walletAddress,
-    eligibilityType,
-  }));
-}
-
 export function parseCheckerImport(
   gtdValue: string,
   fcfsValue: string,
 ) {
-  const gtd = parseWalletList(gtdValue, "GTD");
-  const fcfs = parseWalletList(fcfsValue, "FCFS");
+  const draft = parseCheckerImportDraft(gtdValue, fcfsValue);
 
-  // The same wallet is allowed in both lists.
-  const entries = [...gtd, ...fcfs];
-
-  if (!entries.length) {
+  if (!draft.entries.length) {
     throw new HttpError(
       400,
-      "Paste at least one GTD or FCFS wallet.",
+      "No valid EVM wallets were found. Paste a wallet column and try again.",
       "EMPTY_CHECKER_IMPORT",
     );
   }
 
-  if (entries.length > MAX_IMPORT_WALLETS) {
+  if (draft.entries.length > MAX_IMPORT_WALLETS) {
     throw new HttpError(
       400,
       `Import at most ${MAX_IMPORT_WALLETS.toLocaleString("en-US")} wallets at once.`,
@@ -105,7 +68,62 @@ export function parseCheckerImport(
     );
   }
 
-  return entries;
+  return draft;
+}
+
+async function inspectCheckerImportWithSql(
+  sql: SpinDb,
+  draft: CheckerImportDraft,
+) {
+  const existing = new Map<string, CheckerEligibility>();
+
+  for (let offset = 0; offset < draft.entries.length; offset += 500) {
+    const batch = draft.entries.slice(offset, offset + 500);
+    const parameters = batch.map((entry) => entry.walletAddress);
+    const placeholders = parameters.map((_, index) => `$${index + 1}`).join(",");
+    const rows = await sql.unsafe<
+      Pick<CheckerWalletRow, "wallet_address" | "eligibility_type">[]
+    >(
+      `select wallet_address, eligibility_type
+       from checker_wallets
+       where wallet_address in (${placeholders})`,
+      parameters,
+    );
+
+    for (const row of rows) existing.set(row.wallet_address, row.eligibility_type);
+  }
+
+  const entriesToWrite = draft.entries.filter((entry) => (
+    existing.get(entry.walletAddress) !== entry.eligibilityType
+  ));
+  const alreadyExists = existing.size;
+  const statusChanges = draft.entries.filter((entry) => {
+    const current = existing.get(entry.walletAddress);
+    return current !== undefined && current !== entry.eligibilityType;
+  }).length;
+
+  const preview: CheckerImportPreview = {
+    gtd: draft.gtd,
+    fcfs: draft.fcfs,
+    validUnique: draft.validUnique,
+    fixedPrefixes: draft.fixedPrefixes,
+    duplicatesRemoved: draft.duplicatesRemoved,
+    ignoredRows: draft.ignoredRows,
+    crossListConflicts: draft.crossListConflicts,
+    alreadyExists,
+    unchanged: alreadyExists - statusChanges,
+    statusChanges,
+    newWallets: draft.validUnique - alreadyExists,
+  };
+
+  return { preview, entriesToWrite };
+}
+
+export async function previewCheckerWallets(
+  draft: CheckerImportDraft,
+) {
+  await ensureCheckerSchema();
+  return (await inspectCheckerImportWithSql(getDb(), draft)).preview;
 }
 
 async function checkerStatsWithSql(sql: SpinDb) {
@@ -198,7 +216,7 @@ export async function listCheckerWallets(
 }
 
 export async function upsertCheckerWallets(
-  entries: CheckerImport[],
+  draft: CheckerImportDraft,
 ) {
   await ensureCheckerSchema();
 
@@ -209,12 +227,14 @@ export async function upsertCheckerWallets(
       )
     `;
 
+    const { preview, entriesToWrite } = await inspectCheckerImportWithSql(sql, draft);
+
     for (
       let offset = 0;
-      offset < entries.length;
+      offset < entriesToWrite.length;
       offset += 500
     ) {
-      const batch = entries.slice(
+      const batch = entriesToWrite.slice(
         offset,
         offset + 500,
       );
@@ -242,18 +262,20 @@ export async function upsertCheckerWallets(
           updated_at
         )
         values ${values.join(",")}
-        on conflict (
-          wallet_address,
-          eligibility_type
-        )
+        on conflict (wallet_address)
         do update set
+          eligibility_type = excluded.eligibility_type,
           imported_at = now(),
           updated_at = now()`,
         parameters,
       );
     }
 
-    return checkerStatsWithSql(sql);
+    return {
+      preview,
+      saved: entriesToWrite.length,
+      stats: await checkerStatsWithSql(sql),
+    };
   });
 }
 
