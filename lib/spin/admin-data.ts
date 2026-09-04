@@ -194,6 +194,8 @@ export async function getAdminOverview() {
       total_trades: number | string;
       gtd_trades: number;
       fcfs_trades: number;
+      point_trades: number;
+      bunny_points_awarded: number | string;
       longest_streak: number;
     }[]>`
       select
@@ -241,6 +243,8 @@ export async function getAdminOverview() {
         (select count(*)::bigint from spin_bunny_trades)::text as total_trades,
         (select count(*)::int from spin_bunny_trades where reward_type = 'GTD') as gtd_trades,
         (select count(*)::int from spin_bunny_trades where reward_type = 'FCFS') as fcfs_trades,
+        (select count(*)::int from spin_bunny_trades where reward_type = 'POINTS') as point_trades,
+        (select coalesce(sum(points_awarded), 0)::bigint from spin_bunny_trades)::text as bunny_points_awarded,
         coalesce(max(profiles.longest_streak), 0)::int as longest_streak
       from spin_bunny_profiles profiles
       join spin_users users on users.id = profiles.user_id
@@ -309,6 +313,8 @@ export async function getAdminOverview() {
       totalTrades: numeric(bunnyStats[0]?.total_trades),
       gtdTrades: numeric(bunnyStats[0]?.gtd_trades),
       fcfsTrades: numeric(bunnyStats[0]?.fcfs_trades),
+      pointTrades: numeric(bunnyStats[0]?.point_trades),
+      bunnyPointsAwarded: numeric(bunnyStats[0]?.bunny_points_awarded),
       longestStreak: numeric(bunnyStats[0]?.longest_streak),
     },
     storage: {

@@ -10,6 +10,7 @@ import { ensureProductionSchema } from "./schema";
 import { getSpinSettings, type SpinSettings } from "./settings";
 
 export const BUNNY_CARROT_COST = 3;
+export const BUNNY_POINT_VALUE_PER_DAY = 3;
 export type BunnyRewardType = "GTD" | "FCFS";
 
 type BunnyClock = { today: string; yesterday: string; tomorrow: string; month: string; day_index: number };
@@ -43,6 +44,8 @@ export type BunnyState = {
   tradeReady: boolean;
   fcfsEligible: boolean;
   gtdEligible: boolean;
+  canSellForPoints: boolean;
+  pointSaleValue: number;
   diedFromHunger: boolean;
   deathOnBreak: boolean;
   deathCount: number;
@@ -155,6 +158,8 @@ export async function getBunnyState(
     tradeReady: fcfsEligible,
     fcfsEligible,
     gtdEligible,
+    canSellForPoints: streakDays > 0,
+    pointSaleValue: streakDays * BUNNY_POINT_VALUE_PER_DAY,
     diedFromHunger,
     deathOnBreak: settings.bunnyDeathOnBreak,
     deathCount: Number(profile?.death_count ?? 0),
@@ -373,6 +378,106 @@ export async function tradeBunny(user: SpinUser, rawRewardType: string, idempote
       repeated: false,
       rewardType: rawRewardType as BunnyRewardType,
       winId,
+      bunny: await getBunnyState(sql, user.id, settings),
+    };
+  });
+}
+
+export async function sellBunnyForPoints(user: SpinUser, idempotencyKey: string) {
+  if (!validUuid(idempotencyKey)) {
+    throw new HttpError(400, "Refresh the page and try the sale again.", "BAD_IDEMPOTENCY_KEY");
+  }
+  await ensureProductionSchema();
+  const database = getDb();
+  await enforceRateLimit(`bunny-points-sale:${user.id}`, 8, 60, database);
+
+  return inTransaction(async (sql) => {
+    await sql`select pg_advisory_xact_lock_shared(hashtext('bunny-hood-active-campaign'))`;
+    const settings = await getSpinSettings(sql);
+    const clock = await getBunnyClock(sql);
+    const users = await sql<{ points: number | string; points_spent: number | string }[]>`
+      select points, points_spent from spin_users
+      where id = ${user.id}::uuid for update
+    `;
+    const currentUser = users[0];
+    if (!currentUser) throw new HttpError(401, "Connect X to continue.", "AUTH_REQUIRED");
+
+    const repeated = await sql<{
+      trade_id: string;
+      reward_type: string;
+      points_awarded: number | string;
+    }[]>`
+      select id as trade_id, reward_type, points_awarded
+      from spin_bunny_trades
+      where user_id = ${user.id}::uuid
+        and idempotency_key = ${idempotencyKey}::uuid
+      limit 1
+    `;
+    if (repeated[0]) {
+      if (repeated[0].reward_type !== "POINTS") {
+        throw new HttpError(409, "That sale request was already used.", "IDEMPOTENCY_CONFLICT");
+      }
+      return {
+        sold: true,
+        repeated: true,
+        tradeId: repeated[0].trade_id,
+        pointsAwarded: Number(repeated[0].points_awarded),
+        pointsAvailable: Number(currentUser.points) - Number(currentUser.points_spent),
+        bunny: await getBunnyState(sql, user.id, settings),
+      };
+    }
+
+    const profiles = await sql<BunnyProfileRow[]>`
+      select profiles.cycle_number, profiles.streak_days, profiles.longest_streak,
+        profiles.total_carrots, profiles.last_fed_day::text, profiles.last_feed_idempotency_key::text,
+        profiles.trade_ready, profiles.death_count, profiles.last_death_at,
+        (select count(*)::int from spin_bunny_trades trades where trades.user_id = profiles.user_id) as total_trades
+      from spin_bunny_profiles profiles
+      where profiles.user_id = ${user.id}::uuid
+      for update
+    `;
+    const profile = profiles[0];
+    const activeStreak = currentStreak(profile, clock, settings.bunnyDeathOnBreak);
+    if (!profile || activeStreak < 1) {
+      throw new HttpError(409, "Feed your Bunny before selling it for points.", "BUNNY_HAS_NO_VALUE");
+    }
+
+    const pointsAwarded = activeStreak * BUNNY_POINT_VALUE_PER_DAY;
+    if (!Number.isSafeInteger(pointsAwarded) || pointsAwarded < 1) {
+      throw new HttpError(409, "This Bunny cannot be sold for points.", "BAD_BUNNY_POINT_VALUE");
+    }
+
+    const tradeId = randomUUID();
+    await sql`
+      insert into spin_bunny_trades (
+        id, user_id, cycle_number, reward_type, streak_days,
+        points_available_at_trade, points_awarded, idempotency_key
+      ) values (
+        ${tradeId}, ${user.id}::uuid, ${profile.cycle_number}, 'POINTS',
+        ${activeStreak}, ${Number(currentUser.points) - Number(currentUser.points_spent)},
+        ${pointsAwarded}, ${idempotencyKey}::uuid
+      )
+    `;
+    const updatedUsers = await sql<{ points_available: number | string }[]>`
+      update spin_users
+      set points = points + ${pointsAwarded}, updated_at = now()
+      where id = ${user.id}::uuid
+      returning (points - points_spent)::bigint as points_available
+    `;
+    await sql`
+      update spin_bunny_profiles
+      set cycle_number = cycle_number + 1,
+          streak_days = 0,
+          trade_ready = false,
+          updated_at = now()
+      where user_id = ${user.id}::uuid
+    `;
+    return {
+      sold: true,
+      repeated: false,
+      tradeId,
+      pointsAwarded,
+      pointsAvailable: Number(updatedUsers[0].points_available),
       bunny: await getBunnyState(sql, user.id, settings),
     };
   });

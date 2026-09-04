@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 
 const root = process.cwd();
 const skipped = new Set([".git", ".next", "node_modules"]);
-const textExtensions = new Set([".ts", ".tsx", ".js", ".mjs", ".json", ".md", ".sql", ".example", ".gs"]);
+const textExtensions = new Set([".ts", ".tsx", ".js", ".mjs", ".json", ".md", ".sql", ".css", ".example", ".gs"]);
 
 function filesIn(directory) {
   return readdirSync(directory).flatMap((name) => {
@@ -38,6 +38,7 @@ const migration = [
   "014_spin_points_shop.sql",
   "015_feed_the_bunny.sql",
   "016_bunny_evolution_rules.sql",
+  "017_bunny_point_sales.sql",
 ].map((name) => readFileSync(join(root, "db/migrations", name), "utf8")).join("\n");
 const wheel = readFileSync(join(root, "lib/spin/wheel.ts"), "utf8");
 const campaigns = readFileSync(join(root, "lib/spin/campaigns.ts"), "utf8");
@@ -64,6 +65,7 @@ const bunny = readFileSync(join(root, "lib/spin/bunny.ts"), "utf8");
 const bunnyApp = readFileSync(join(root, "app/SpinTheWheel/feed-the-bunny.tsx"), "utf8");
 const bunnyFeedRoute = readFileSync(join(root, "app/api/spin/bunny/feed/route.ts"), "utf8");
 const bunnyTradeRoute = readFileSync(join(root, "app/api/spin/bunny/trade/route.ts"), "utf8");
+const bunnyPointSaleRoute = readFileSync(join(root, "app/api/spin/bunny/sell-points/route.ts"), "utf8");
 const engagementAdminRoute = readFileSync(join(root, "app/api/admin/spin/engagement-settings/route.ts"), "utf8");
 const rabbitContract = readFileSync(join(root, "contracts/BunnyHoodRabbitHoleSBT.sol"), "utf8");
 const rabbitClaim = readFileSync(join(root, "lib/rabbit-hole/claim.ts"), "utf8");
@@ -254,14 +256,18 @@ if (!/create table if not exists spin_bunny_profiles/.test(migration) || !/creat
 if (!/primary key \(user_id, feed_month\)/.test(migration) || !/feed_bits bigint/.test(migration) || !/points_spent = feeds_count \* 3/.test(migration) || !/clock_timestamp\(\) at time zone 'UTC'/.test(bunny)) failures.push("Compact daily UTC carrot history is not protected against duplicates or incorrect pricing.");
 if (!/points - points_spent >=/.test(bunny) || !/BUNNY_CARROT_COST = 3/.test(bunny) || !/idempotency_key/.test(`${migration}\n${bunny}`)) failures.push("Bunny feeding can overspend, misprice, or replay.");
 if (!/source in \('wheel', 'shop', 'bunny'\)/.test(migration) || !/bunny_trade_id/.test(`${migration}\n${bunny}`) || !/ROLE_LIMIT_REACHED/.test(bunny)) failures.push("Evolved Bunny trades do not create capped permanent wallet-ready wins.");
-if (!/requireSessionUser\(request, true\)/.test(bunnyFeedRoute) || !/requireSessionUser\(request, true\)/.test(bunnyTradeRoute) || !/assertSameOrigin/.test(`${bunnyFeedRoute}\n${bunnyTradeRoute}`)) failures.push("Bunny mutations are missing authenticated CSRF protection.");
+if (!/requireSessionUser\(request, true\)/.test(bunnyFeedRoute) || !/requireSessionUser\(request, true\)/.test(bunnyTradeRoute) || !/requireSessionUser\(request, true\)/.test(bunnyPointSaleRoute) || !/assertSameOrigin/.test(`${bunnyFeedRoute}\n${bunnyTradeRoute}\n${bunnyPointSaleRoute}`)) failures.push("Bunny mutations are missing authenticated CSRF protection.");
 if (!/requireSpinAdmin/.test(engagementAdminRoute) || !/assertSameOrigin/.test(engagementAdminRoute) || !/recordAdminAction/.test(engagementAdminRoute)) failures.push("Bunny and post settings are not protected and audited in admin.");
 if (!/permanent_task_claimed_bits/.test(migration) || !/PERMANENT_TASK_BITS/.test(progress) || !/366503875925/.test(migration) || !/733007751850/.test(migration)) failures.push("Follow and notification rewards are not permanent or historical claims are not backfilled.");
 if (!/visibleTasks/.test(wheelApp) || !/task\.id === "follow" \|\| task\.id === "notifications"/.test(wheelApp)) failures.push("Completed one-time X tasks are not hidden from returning users.");
 if (!/shop-carrot/.test(wheelApp) || !/BUY CARROT & FEED NOW/.test(wheelApp) || !/BUNNY_CARROT_COST = 3/.test(bunny)) failures.push("The daily three-point carrot is not available from Hood Shop.");
 if (!/bunny_death_on_break/.test(migration) || !/diedFromHunger/.test(bunny) || !/startedNewCycleAfterDeath/.test(bunny) || !/died from hunger/i.test(bunnyApp)) failures.push("The optional broken-streak Bunny death and reset flow is incomplete.");
-if (!/canFeed: !fedToday/.test(bunny) || !/KEEP EVOLVING/.test(bunnyApp) || !/SELL BUNNY FOR FCFS/.test(bunnyApp)) failures.push("Users cannot keep evolving or sell an eligible Bunny for FCFS.");
-if (!/bunny_gtd_requirement_mode/.test(migration) || !/qualifiesForGtd/.test(bunny) || !/bunnyGtdPointsRequired/.test(adminApp) || !/bunny\.gtdEligible && <button/.test(bunnyApp)) failures.push("Private GTD day/point rules are missing or exposed before eligibility.");
+if (!/canFeed: !fedToday/.test(bunny) || !/KEEP EVOLVING/.test(bunnyApp) || !/SELL BUNNY FOR FCFS/.test(wheelApp)) failures.push("Users cannot keep evolving or sell an eligible Bunny for FCFS.");
+if (!/bunny_gtd_requirement_mode/.test(migration) || !/qualifiesForGtd/.test(bunny) || !/bunnyGtdPointsRequired/.test(adminApp) || !/state\.bunny\.gtdEligible \? "SELL BUNNY FOR GTD" : "KEEP EVOLVING"/.test(wheelApp)) failures.push("Private GTD day/point rules are missing or exposed before eligibility.");
+if (!/reward_type in \('GTD', 'FCFS', 'POINTS'\)/.test(migration) || !/points_awarded = streak_days::bigint \* 3/.test(migration) || !/BUNNY_POINT_VALUE_PER_DAY = 3/.test(bunny) || !/export async function sellBunnyForPoints/.test(bunny) || !/SELL FOR \$\{state\.bunny\.pointSaleValue\} POINTS/.test(wheelApp)) failures.push("One-time Bunny point sales are missing or not valued at three points per evolution day.");
+if (!/pointTrades/.test(adminData) || !/bunnyPointsAwarded/.test(adminData) || !/POINT-SALE TRADES/.test(adminApp) || !/POINTS PAID FOR BUNNIES/.test(adminApp)) failures.push("Private Bunny point-sale analytics are incomplete.");
+if (/FCFS UNLOCKS AT DAY/.test(source) || !/Feed your Bunny\. Evolve it and sell it for FCFS or GTD\./.test(bunnyApp)) failures.push("Bunny public copy still exposes the removed FCFS day threshold or misses the requested message.");
+if (!/bunny-feed-burst/.test(bunnyApp) || !/bunny-death-mask/.test(bunnyApp) || !/bunnyFeedJump/.test(source) || !/shop-bunny-starved-mark/.test(wheelApp)) failures.push("Feeding and starvation do not have distinct visual states.");
 if (!/FEED THE/.test(source) || !/SELL BUNNY FOR GTD/.test(source) || !/SELL BUNNY FOR FCFS/.test(source) || !/00:00 UTC/.test(source)) failures.push("The live Bunny feeding, evolution, or role-sale experience is incomplete.");
 if (!/totalFeeds/.test(adminData) || !/READY FOR FCFS/.test(adminApp) || !/READY FOR GTD · PRIVATE/.test(adminApp) || !/totalDeaths/.test(adminData) || /dashboard\.bunny/.test(wheelApp)) failures.push("Bunny analytics are not complete and private to the admin panel.");
 if (!/anonymousRequestKey/.test(checkerPublicRoute) || !/enforceRateLimit/.test(checkerPublicRoute) || /getCheckerStats|listCheckerWallets/.test(checkerPublicRoute)) failures.push("The public checker is not throttled or exposes private counts/list data.");

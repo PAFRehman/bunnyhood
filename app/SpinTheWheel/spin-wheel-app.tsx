@@ -260,9 +260,10 @@ export function SpinWheelApp() {
   const [postTaskBusy, setPostTaskBusy] = useState(false);
   const [shopBusy, setShopBusy] = useState<ShopSpotType | null>(null);
   const [shopCelebration, setShopCelebration] = useState<{ spotType: ShopSpotType; pointsSpent: number } | null>(null);
-  const [bunnyBusy, setBunnyBusy] = useState<"feed" | ShopSpotType | null>(null);
+  const [bunnyBusy, setBunnyBusy] = useState<"feed" | ShopSpotType | "POINTS" | null>(null);
   const [bunnyAnimating, setBunnyAnimating] = useState(false);
   const [bunnyCelebration, setBunnyCelebration] = useState<ShopSpotType | null>(null);
+  const [bunnyPointsCelebration, setBunnyPointsCelebration] = useState<number | null>(null);
   const revealTimer = useRef<number | null>(null);
   const bunnyAnimationTimer = useRef<number | null>(null);
   const pendingOutcome = useRef<SpinOutcome | null>(null);
@@ -507,7 +508,7 @@ export function SpinWheelApp() {
             : `Carrot delivered. Day ${reply.bunny.streakDays} of the evolution is complete.`);
       await loadState();
       if (bunnyAnimationTimer.current) window.clearTimeout(bunnyAnimationTimer.current);
-      bunnyAnimationTimer.current = window.setTimeout(() => setBunnyAnimating(false), 1_900);
+      bunnyAnimationTimer.current = window.setTimeout(() => setBunnyAnimating(false), 2_600);
     } catch (error) {
       setBunnyAnimating(false);
       setMessage(error instanceof Error ? error.message : "The Bunny could not be fed.");
@@ -532,6 +533,27 @@ export function SpinWheelApp() {
       await loadState();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "The evolved Bunny could not be traded.");
+      await loadState();
+    } finally {
+      setBunnyBusy(null);
+    }
+  }
+
+  async function sellBunnyForPoints() {
+    if (!state?.bunny?.canSellForPoints || bunnyBusy) return;
+    const pointSaleValue = state.bunny.pointSaleValue;
+    if (!window.confirm(`Sell your day ${state.bunny.streakDays} Bunny for ${pointSaleValue} points? This resets its evolution and starts a new Bunny cycle.`)) return;
+    setBunnyBusy("POINTS");
+    setMessage("");
+    try {
+      const reply = await requestJson<{ pointsAwarded: number }>("/api/spin/bunny/sell-points", {
+        method: "POST",
+        body: JSON.stringify({ idempotencyKey: crypto.randomUUID() }),
+      });
+      setBunnyPointsCelebration(reply.pointsAwarded);
+      await loadState();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "The Bunny could not be sold for points.");
       await loadState();
     } finally {
       setBunnyBusy(null);
@@ -762,25 +784,44 @@ export function SpinWheelApp() {
               </section>
             )}
 
-            {state.bunny && <FeedTheBunny bunny={state.bunny} points={state.user.points} roleWins={state.user.roleWins} busy={bunnyBusy} animating={bunnyAnimating} onFeed={feedBunny} onTrade={tradeBunny} />}
+            {state.bunny && <FeedTheBunny bunny={state.bunny} points={state.user.points} busy={bunnyBusy} animating={bunnyAnimating} onFeed={feedBunny} />}
 
             {state.bunny && (
               <section className="hood-shop" id="hood-shop">
                 <div className="shop-noise" aria-hidden="true" />
                 <header><div><p className="section-kicker">{state.campaign ? `POINTS MARKET · ROUND ${String(state.campaign.roundNumber).padStart(2, "0")}` : "DAILY POINTS MARKET"}</p><h2>THE HOOD<br /><em>SHOP.</em></h2></div><div className="shop-balance"><span>AVAILABLE BALANCE</span><strong>{state.user.points}</strong><small>{state.user.pointsEarned} earned · {state.user.pointsSpent} spent</small></div></header>
                 <div className="shop-products">
-                  <article className={`shop-product shop-carrot ${state.bunny.diedFromHunger ? "bunny-starved" : ""}`}>
+                  <article className={`shop-product shop-carrot ${state.bunny.diedFromHunger ? "bunny-starved" : ""} ${bunnyAnimating ? "is-feeding" : ""}`}>
                     <div className="shop-product-index">01 · DAILY</div>
                     <div><span>FEED THE BUNNYHOOD</span><h3>CARROT</h3><p>Buy today&apos;s carrot and feed your Bunny instantly. One carrot is available per connected user each UTC day.</p></div>
                     <div className="shop-price"><strong>{state.bunny.carrotCost}</strong><span>POINTS</span></div>
                     <div className="shop-stock"><span>DAILY STATUS</span><strong>{state.bunny.fedToday ? "FED" : "READY"}</strong></div>
                     <button type="button" disabled={!state.bunny.canFeed || state.user.points < state.bunny.carrotCost || bunnyBusy !== null} onClick={feedBunny}>{bunnyBusy === "feed" ? "FEEDING…" : state.bunny.fedToday ? "FED TODAY · RETURNS 00:00 UTC" : state.user.points < state.bunny.carrotCost ? `NEED ${state.bunny.carrotCost - state.user.points} MORE POINT${state.bunny.carrotCost - state.user.points === 1 ? "" : "S"}` : "BUY CARROT & FEED NOW"}</button>
                   </article>
+                  <article className={`shop-bunny-exchange bunny-level-${state.bunny.evolutionLevel} ${state.bunny.diedFromHunger ? "bunny-starved" : ""} ${bunnyAnimating ? "is-feeding" : ""}`} id="bunny-exchange">
+                    <div className="shop-product-index">02 · EVOLUTION EXCHANGE</div>
+                    <div className="shop-bunny-visual" aria-hidden="true">
+                      <Image src="/assets/bunny-hood-hero.webp" alt="" width={1100} height={1100} sizes="(max-width: 690px) 76vw, 360px" />
+                      <div className="shop-bunny-value"><span>CURRENT VALUE</span><strong>{state.bunny.pointSaleValue}</strong><small>POINTS</small></div>
+                      {state.bunny.diedFromHunger && <div className="shop-bunny-starved-mark"><strong>× ×</strong><span>STARVED</span></div>}
+                    </div>
+                    <div className="shop-bunny-copy">
+                      <span>YOUR EVOLVED BUNNY</span>
+                      <h3>SELL THE<br />EVOLUTION.</h3>
+                      <p>Sell your current Bunny for points, FCFS, or GTD. A points sale pays 3 points for every evolution day. Every sale starts a fresh Bunny cycle.</p>
+                      <div><span>EVOLUTION DAY <strong>{state.bunny.streakDays}</strong></span><span>STAGE <strong>{state.bunny.evolutionLevel}/4</strong></span></div>
+                    </div>
+                    <div className="bunny-exchange-options">
+                      <div className={`bunny-exchange-option points-option ${state.bunny.canSellForPoints ? "is-unlocked" : ""}`}><span>POINTS</span><strong>{state.bunny.pointSaleValue}</strong><small>3 × DAY {state.bunny.streakDays}</small><button type="button" disabled={!state.bunny.canSellForPoints || bunnyBusy !== null} onClick={sellBunnyForPoints}>{bunnyBusy === "POINTS" ? "SELLING…" : state.bunny.canSellForPoints ? `SELL FOR ${state.bunny.pointSaleValue} POINTS` : "KEEP EVOLVING"}</button></div>
+                      <div className={`bunny-exchange-option ${state.bunny.fcfsEligible ? "is-unlocked" : ""}`}><span>ACCESS</span><strong>FCFS</strong><small>{state.bunny.fcfsEligible ? "EXCHANGE UNLOCKED" : "EVOLVE TO UNLOCK"}</small><button type="button" disabled={!state.bunny.fcfsEligible || state.user.roleWins.FCFS1 >= 3 || bunnyBusy !== null} onClick={() => tradeBunny("FCFS")}>{bunnyBusy === "FCFS" ? "SELLING…" : state.user.roleWins.FCFS1 >= 3 ? "FCFS LIMIT FULL" : state.bunny.fcfsEligible ? "SELL BUNNY FOR FCFS" : "KEEP EVOLVING"}</button></div>
+                      <div className={`bunny-exchange-option ${state.bunny.gtdEligible ? "is-unlocked" : ""}`}><span>ACCESS</span><strong>GTD</strong><small>{state.bunny.gtdEligible ? "EXCHANGE UNLOCKED" : "EVOLVE TO UNLOCK"}</small><button type="button" disabled={!state.bunny.gtdEligible || state.user.roleWins.GTD >= 3 || bunnyBusy !== null} onClick={() => tradeBunny("GTD")}>{bunnyBusy === "GTD" ? "SELLING…" : state.user.roleWins.GTD >= 3 ? "GTD LIMIT FULL" : state.bunny.gtdEligible ? "SELL BUNNY FOR GTD" : "KEEP EVOLVING"}</button></div>
+                    </div>
+                  </article>
                   {(state.shop ?? []).map((item) => {
                     const roleFull = item.spotType === "GTD" ? state.user!.roleWins.GTD >= 3 : state.user!.roleWins.FCFS1 >= 3;
-                    const disabled = item.purchasedByUser || item.remaining < 1 || state.user!.points < item.pointsPrice || roleFull || Boolean(shopBusy);
+                    const disabled = item.purchasedByUser || item.remaining < 1 || state.user!.points < item.pointsPrice || roleFull || Boolean(shopBusy) || bunnyBusy !== null;
                     const status = item.purchasedByUser ? "SECURED" : item.remaining < 1 ? "SOLD OUT" : roleFull ? "ROLE LIMIT REACHED" : state.user!.points < item.pointsPrice ? `NEED ${item.pointsPrice - state.user!.points} MORE` : "CLAIM WITH POINTS";
-                    return <article className={`shop-product shop-${item.spotType.toLowerCase()}`} key={item.spotType}><div className="shop-product-index">{item.spotType === "GTD" ? "02" : "03"}</div><div><span>{item.spotType === "GTD" ? "GUARANTEED WHITELIST" : "FIRST COME · FIRST SERVED"}</span><h3>{item.spotType}</h3><p>{item.spotType === "GTD" ? "Lock a guaranteed whitelist position from this campaign pool." : "Secure an FCFS access position using points you earned in the Hood."}</p></div><div className="shop-price"><strong>{item.pointsPrice}</strong><span>POINTS</span></div><div className="shop-stock"><span>UP FOR GRABS</span><strong>{item.remaining} <small>/ {item.totalCount}</small></strong></div><button type="button" disabled={disabled} onClick={() => purchaseSpot(item.spotType, item.pointsPrice)}>{shopBusy === item.spotType ? "SECURING…" : status}</button></article>;
+                    return <article className={`shop-product shop-${item.spotType.toLowerCase()}`} key={item.spotType}><div className="shop-product-index">{item.spotType === "GTD" ? "03" : "04"}</div><div><span>{item.spotType === "GTD" ? "GUARANTEED WHITELIST" : "FIRST COME · FIRST SERVED"}</span><h3>{item.spotType}</h3><p>{item.spotType === "GTD" ? "Lock a guaranteed whitelist position from this campaign pool." : "Secure an FCFS access position using points you earned in the Hood."}</p></div><div className="shop-price"><strong>{item.pointsPrice}</strong><span>POINTS</span></div><div className="shop-stock"><span>UP FOR GRABS</span><strong>{item.remaining} <small>/ {item.totalCount}</small></strong></div><button type="button" disabled={disabled} onClick={() => purchaseSpot(item.spotType, item.pointsPrice)}>{shopBusy === item.spotType ? "SECURING…" : status}</button></article>;
                   })}
                 </div>
               </section>
@@ -902,6 +943,7 @@ export function SpinWheelApp() {
       </section>
       {shopCelebration && <div className="shop-celebration" role="dialog" aria-modal="true" aria-label={`${shopCelebration.spotType} secured`}><div className="shop-confetti" aria-hidden="true">{Array.from({ length: 18 }, (_, index) => <i key={index} style={{ "--confetti": index } as CSSProperties} />)}</div><div className="shop-celebration-ring"><span>BH</span></div><p>ACCESS ACQUIRED</p><h2>{shopCelebration.spotType}<br /><em>SECURED.</em></h2><strong>{shopCelebration.pointsSpent} POINTS USED</strong><small>Your permanent win is saved. Add its receiving wallet in your Hood profile.</small><button type="button" onClick={() => { setShopCelebration(null); document.getElementById("spin-profile")?.scrollIntoView({ behavior: "smooth" }); }}>Add receiving wallet</button></div>}
       {bunnyCelebration && <div className="shop-celebration bunny-trade-celebration" role="dialog" aria-modal="true" aria-label={`${bunnyCelebration} Bunny sale complete`}><div className="shop-confetti" aria-hidden="true">{Array.from({ length: 18 }, (_, index) => <i key={index} style={{ "--confetti": index } as CSSProperties} />)}</div><div className="shop-celebration-ring"><span>BH</span></div><p>EVOLUTION SOLD</p><h2>{bunnyCelebration}<br /><em>IS YOURS.</em></h2><strong>NEW BUNNY CYCLE UNLOCKED</strong><small>Your permanent win is saved. Add its receiving wallet in your Hood profile.</small><button type="button" onClick={() => { setBunnyCelebration(null); document.getElementById("spin-profile")?.scrollIntoView({ behavior: "smooth" }); }}>Add receiving wallet</button></div>}
+      {bunnyPointsCelebration !== null && <div className="shop-celebration bunny-points-celebration" role="dialog" aria-modal="true" aria-label={`${bunnyPointsCelebration} points received from Bunny sale`}><div className="shop-confetti" aria-hidden="true">{Array.from({ length: 18 }, (_, index) => <i key={index} style={{ "--confetti": index } as CSSProperties} />)}</div><div className="shop-celebration-ring"><span>+{bunnyPointsCelebration}</span></div><p>BUNNY SOLD</p><h2>POINTS<br /><em>RETURNED.</em></h2><strong>NEW BUNNY CYCLE STARTED</strong><small>Your points are already in your available balance. Feed the new Bunny whenever you are ready.</small><button type="button" onClick={() => { setBunnyPointsCelebration(null); document.getElementById("feed-the-bunny")?.scrollIntoView({ behavior: "smooth" }); }}>Start evolving again</button></div>}
     </>
   );
 }
