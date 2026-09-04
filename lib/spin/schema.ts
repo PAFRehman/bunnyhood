@@ -7,6 +7,7 @@ const FIVE_TASK_MIGRATION_ID = "008_five_campaign_tasks";
 const POINTS_SHOP_MIGRATION_ID = "014_spin_points_shop";
 const FEED_THE_BUNNY_MIGRATION_ID = "015_feed_the_bunny";
 const BUNNY_EVOLUTION_RULES_MIGRATION_ID = "016_bunny_evolution_rules";
+const BUNNY_POINT_SALES_MIGRATION_ID = "017_bunny_point_sales";
 
 const statements = [
   `alter table spin_users
@@ -646,6 +647,23 @@ const bunnyEvolutionRulesStatements = [
       check (points_available_at_trade >= 0)`,
 ] as const;
 
+const bunnyPointSalesStatements = [
+  `alter table spin_bunny_trades
+    add column if not exists points_awarded bigint not null default 0`,
+  `alter table spin_bunny_trades
+    drop constraint if exists spin_bunny_trades_reward_type_check,
+    drop constraint if exists spin_bunny_trades_points_awarded_check`,
+  `alter table spin_bunny_trades
+    add constraint spin_bunny_trades_reward_type_check
+      check (reward_type in ('GTD', 'FCFS', 'POINTS')),
+    add constraint spin_bunny_trades_points_awarded_check check (
+      (reward_type = 'POINTS'
+        and points_awarded = streak_days::bigint * 3
+        and points_awarded > 0)
+      or (reward_type in ('GTD', 'FCFS') and points_awarded = 0)
+    )`,
+] as const;
+
 declare global {
   var bunnyHoodProductionSchema: Promise<void> | undefined;
 }
@@ -816,22 +834,48 @@ async function migrate() {
       where migration_id = ${BUNNY_EVOLUTION_RULES_MIGRATION_ID}
     ) as applied
   `;
-  if (bunnyEvolutionRulesApplied[0]?.applied) return;
+  if (!bunnyEvolutionRulesApplied[0]?.applied) {
+    await inTransaction(async (transaction) => {
+      await transaction`select pg_advisory_xact_lock(hashtext('bunny-hood-production-schema'))`;
+      const alreadyApplied = await transaction<{ applied: boolean }[]>`
+        select exists(
+          select 1 from spin_schema_migrations
+          where migration_id = ${BUNNY_EVOLUTION_RULES_MIGRATION_ID}
+        ) as applied
+      `;
+      if (alreadyApplied[0]?.applied) return;
+
+      for (const statement of bunnyEvolutionRulesStatements) await transaction.unsafe(statement);
+      await transaction`
+        insert into spin_schema_migrations (migration_id)
+        values (${BUNNY_EVOLUTION_RULES_MIGRATION_ID})
+        on conflict (migration_id) do nothing
+      `;
+    });
+  }
+
+  const bunnyPointSalesApplied = await sql<{ applied: boolean }[]>`
+    select exists(
+      select 1 from spin_schema_migrations
+      where migration_id = ${BUNNY_POINT_SALES_MIGRATION_ID}
+    ) as applied
+  `;
+  if (bunnyPointSalesApplied[0]?.applied) return;
 
   await inTransaction(async (transaction) => {
     await transaction`select pg_advisory_xact_lock(hashtext('bunny-hood-production-schema'))`;
     const alreadyApplied = await transaction<{ applied: boolean }[]>`
       select exists(
         select 1 from spin_schema_migrations
-        where migration_id = ${BUNNY_EVOLUTION_RULES_MIGRATION_ID}
+        where migration_id = ${BUNNY_POINT_SALES_MIGRATION_ID}
       ) as applied
     `;
     if (alreadyApplied[0]?.applied) return;
 
-    for (const statement of bunnyEvolutionRulesStatements) await transaction.unsafe(statement);
+    for (const statement of bunnyPointSalesStatements) await transaction.unsafe(statement);
     await transaction`
       insert into spin_schema_migrations (migration_id)
-      values (${BUNNY_EVOLUTION_RULES_MIGRATION_ID})
+      values (${BUNNY_POINT_SALES_MIGRATION_ID})
       on conflict (migration_id) do nothing
     `;
   });

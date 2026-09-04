@@ -63,6 +63,8 @@ type Dashboard = {
     totalTrades: number;
     gtdTrades: number;
     fcfsTrades: number;
+    pointTrades: number;
+    bunnyPointsAwarded: number;
     longestStreak: number;
   };
   storage: {
@@ -575,7 +577,7 @@ export function SpinAdminApp() {
               <label className="admin-new-campaign-toggle admin-bunny-danger-toggle"><input type="checkbox" checked={bunnyDeathOnBreak} onChange={(event) => setBunnyDeathOnBreak(event.target.checked)} /><span><strong>Broken UTC streak kills and resets the Bunny</strong><small>When enabled, missing a complete UTC feed day resets that Bunny to day 0. Its next carrot starts a fresh cycle and the user sees a hunger message. Leave disabled to preserve evolution through missed days.</small></span></label>
               <div className="admin-private-gtd">
                 <p>PRIVATE FUTURE REWARD</p>
-                <label className="admin-new-campaign-toggle"><input type="checkbox" checked={bunnyGtdEnabled} onChange={(event) => setBunnyGtdEnabled(event.target.checked)} /><span><strong>Enable private GTD Bunny exchange</strong><small>Users never see GTD in Feed the Bunny until this is enabled and their own Bunny meets the private rule.</small></span></label>
+                <label className="admin-new-campaign-toggle"><input type="checkbox" checked={bunnyGtdEnabled} onChange={(event) => setBunnyGtdEnabled(event.target.checked)} /><span><strong>Enable private GTD Bunny exchange</strong><small>The public shop never reveals this rule. Its GTD button says KEEP EVOLVING until GTD is enabled and that user meets the private requirement.</small></span></label>
                 <div className="admin-field"><label htmlFor="bunny-gtd-mode">GTD requirement</label><select id="bunny-gtd-mode" value={bunnyGtdRequirementMode} onChange={(event) => setBunnyGtdRequirementMode(event.target.value as "days" | "points" | "both")} disabled={!bunnyGtdEnabled}><option value="days">Evolution days</option><option value="points">Available points</option><option value="both">Evolution days + available points</option></select></div>
                 <div className="admin-private-gtd-grid">
                   <div className="admin-field"><label htmlFor="bunny-gtd-days">GTD evolution days</label><input id="bunny-gtd-days" type="number" min="1" max="365" value={bunnyGtdStreakDays} onChange={(event) => setBunnyGtdStreakDays(event.target.value)} disabled={!bunnyGtdEnabled || bunnyGtdRequirementMode === "points"} required /><small>Used for Days or Both.</small></div>
@@ -593,6 +595,8 @@ export function SpinAdminApp() {
               <div><span>RECORDED BUNNY DEATHS</span><strong>{formatNumber(dashboard.bunny.totalDeaths)}</strong></div>
               <div><span>COMPLETED TRADES</span><strong>{formatNumber(dashboard.bunny.totalTrades)}</strong></div>
               <div><span>GTD / FCFS TRADES</span><strong>{formatNumber(dashboard.bunny.gtdTrades)} / {formatNumber(dashboard.bunny.fcfsTrades)}</strong></div>
+              <div><span>POINT-SALE TRADES</span><strong>{formatNumber(dashboard.bunny.pointTrades)}</strong></div>
+              <div><span>POINTS PAID FOR BUNNIES</span><strong>{formatNumber(dashboard.bunny.bunnyPointsAwarded)}</strong></div>
               <div><span>LONGEST STREAK</span><strong>{formatNumber(dashboard.bunny.longestStreak)}D</strong></div>
             </aside>
           </div>

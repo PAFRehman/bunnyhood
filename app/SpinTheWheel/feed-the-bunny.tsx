@@ -20,6 +20,8 @@ export type BunnyUiState = {
   tradeReady: boolean;
   fcfsEligible: boolean;
   gtdEligible: boolean;
+  canSellForPoints: boolean;
+  pointSaleValue: number;
   diedFromHunger: boolean;
   deathOnBreak: boolean;
   deathCount: number;
@@ -27,7 +29,7 @@ export type BunnyUiState = {
   nextFeedAt: string;
 };
 
-type BunnyAction = "feed" | "GTD" | "FCFS" | null;
+type BunnyAction = "feed" | "GTD" | "FCFS" | "POINTS" | null;
 
 function countdownUntil(iso: string) {
   const remaining = Math.max(0, new Date(iso).getTime() - Date.now());
@@ -40,19 +42,15 @@ function countdownUntil(iso: string) {
 export function FeedTheBunny({
   bunny,
   points,
-  roleWins,
   busy,
   animating,
   onFeed,
-  onTrade,
 }: {
   bunny: BunnyUiState;
   points: number;
-  roleWins: { GTD: number; FCFS1: number };
   busy: BunnyAction;
   animating: boolean;
   onFeed: () => void;
-  onTrade: (rewardType: "GTD" | "FCFS") => void;
 }) {
   const [countdown, setCountdown] = useState(() => countdownUntil(bunny.nextFeedAt));
   useEffect(() => {
@@ -74,7 +72,7 @@ export function FeedTheBunny({
       <div className="bunny-orbit bunny-orbit-one" aria-hidden="true" />
       <div className="bunny-orbit bunny-orbit-two" aria-hidden="true" />
       <header>
-        <div><p className="section-kicker">DAILY POINTS RITUAL · 00:00 UTC</p><h2>FEED THE<br /><em>BUNNYHOOD.</em></h2><p>Feed one carrot per UTC day, evolve your Bunny, and unlock an FCFS exchange. You can sell it or keep evolving.</p></div>
+        <div><p className="section-kicker">DAILY POINTS RITUAL · 00:00 UTC</p><h2>FEED THE<br /><em>BUNNYHOOD.</em></h2><p>Feed your Bunny. Evolve it and sell it for FCFS or GTD.</p></div>
         <div className="bunny-cycle"><span>BUNNY CYCLE</span><strong>#{String(bunny.cycleNumber).padStart(2, "0")}</strong><small>{bunny.totalTrades} evolution{bunny.totalTrades === 1 ? "" : "s"} traded</small></div>
       </header>
 
@@ -83,10 +81,13 @@ export function FeedTheBunny({
           <div className="bunny-energy" aria-hidden="true">{Array.from({ length: 12 }, (_, index) => <i key={index} style={{ "--spark": index } as CSSProperties} />)}</div>
           <div className="bunny-portrait">
             <Image src="/assets/bunny-hood-hero.webp" alt="Bunny Hood mascot" fill sizes="(max-width: 690px) 88vw, 520px" />
+            <div className="bunny-feed-bite" aria-hidden="true"><i /><i /><i /></div>
+            <div className="bunny-death-mask" aria-hidden="true"><i className="bunny-death-eye bunny-death-eye-left">×</i><i className="bunny-death-eye bunny-death-eye-right">×</i><strong>STARVED</strong><span>NO CARROTS</span></div>
             <div className="bunny-scan" aria-hidden="true" />
             <div className="bunny-crown" aria-hidden="true"><i /><i /><i /></div>
           </div>
           <div className="flying-carrot" aria-hidden="true"><i /><b /><b /><b /></div>
+          <div className="bunny-feed-burst" aria-hidden="true"><strong>CRUNCH!</strong><span>+1 EVOLUTION DAY</span>{Array.from({ length: 9 }, (_, index) => <i key={index} style={{ "--crumb": index } as CSSProperties} />)}</div>
           <div className="bunny-stage-stamp"><span>STAGE {bunny.evolutionLevel}/4</span><strong>{bunny.evolutionName}</strong></div>
         </div>
 
@@ -94,22 +95,12 @@ export function FeedTheBunny({
           {bunny.diedFromHunger && <div className="bunny-hunger-alert" role="alert"><strong>Your Bunny died from hunger.</strong><span>A full UTC feed day was missed, so this evolution reset. Feed a carrot to start again.</span></div>}
           <div className="bunny-streak-head"><div><span>CURRENT STREAK</span><strong>{bunny.streakDays}<small> DAYS</small></strong></div><div><span>BEST STREAK</span><strong>{bunny.longestStreak}<small> DAYS</small></strong></div></div>
           <div className="bunny-progress" aria-label={`${bunny.progressPercent}% evolved`}><i style={{ width: `${bunny.progressPercent}%` }} /></div>
-          <div className="bunny-progress-copy"><span>DAY {bunny.streakDays} OF {bunny.targetDays}</span><strong>{bunny.fcfsEligible ? "FCFS SELL UNLOCKED" : `KEEP EVOLVING · ${bunny.daysUntilEvolution} DAY${bunny.daysUntilEvolution === 1 ? "" : "S"} TO GO`}</strong></div>
+          <div className="bunny-progress-copy"><span>EVOLUTION DAY {bunny.streakDays}</span><strong>{bunny.fcfsEligible || bunny.gtdEligible ? "ROLE EXCHANGE READY" : "KEEP EVOLVING"}</strong></div>
           <div className="bunny-milestones" aria-hidden="true">{[0, 1, 2, 3, 4].map((stage) => <i className={stage <= bunny.evolutionLevel ? "active" : ""} key={stage}><span>{stage}</span></i>)}</div>
 
           <button className="feed-carrot-button" type="button" disabled={!bunny.canFeed || points < bunny.carrotCost || busy !== null} onClick={onFeed}>{feedLabel}<span aria-hidden="true">🥕</span></button>
           <div className="bunny-feed-meta"><span>NEXT DAILY FEED</span><strong>{bunny.fedToday ? countdown : "AVAILABLE NOW"}</strong><small>{bunny.totalCarrots} total carrots fed{bunny.fcfsEligible ? " · keep evolving or sell below" : ""}</small></div>
-
-          {(bunny.fcfsEligible || bunny.gtdEligible) ? (
-            <div className="bunny-trade-zone">
-              <span>EVOLUTION EXCHANGE READY</span><h3>Sell your Bunny.</h3><p>Selling creates a permanent wallet-ready win and starts a fresh Bunny cycle. Or keep feeding this Bunny to evolve further.</p>
-              <div>
-                {bunny.fcfsEligible && <button type="button" disabled={busy !== null || roleWins.FCFS1 >= 3} onClick={() => onTrade("FCFS")}>{busy === "FCFS" ? "SELLING…" : roleWins.FCFS1 >= 3 ? "FCFS LIMIT FULL" : "SELL BUNNY FOR FCFS"}</button>}
-                {bunny.gtdEligible && <button type="button" disabled={busy !== null || roleWins.GTD >= 3} onClick={() => onTrade("GTD")}>{busy === "GTD" ? "SELLING…" : roleWins.GTD >= 3 ? "GTD LIMIT FULL" : "SELL BUNNY FOR GTD"}</button>}
-              </div>
-              <strong className="bunny-keep-evolving">KEEP EVOLVING · NEXT FEED {bunny.fedToday ? countdown : "AVAILABLE NOW"}</strong>
-            </div>
-          ) : <p className="bunny-keep-evolving">KEEP EVOLVING · FCFS UNLOCKS AT DAY {bunny.targetDays}</p>}
+          <a className="bunny-shop-prompt" href="#bunny-exchange">{bunny.canSellForPoints || bunny.fcfsEligible || bunny.gtdEligible ? "OPEN BUNNY EXCHANGE IN THE HOOD SHOP" : "KEEP EVOLVING"}</a>
         </div>
       </div>
     </section>
