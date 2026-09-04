@@ -99,10 +99,9 @@ const checkerAdminPage = readFileSync(join(root, "app/admin/checker/page.tsx"), 
 const checkerAdminApp = readFileSync(join(root, "app/admin/checker/checker-admin-app.tsx"), "utf8");
 const checkerPublicRoute = readFileSync(join(root, "app/api/checker/route.ts"), "utf8");
 const checkerAdminRoute = readFileSync(join(root, "app/api/admin/checker/route.ts"), "utf8");
-const spinLayout = readFileSync(join(root, "app/SpinTheWheel/layout.tsx"), "utf8");
+const spinPage = readFileSync(join(root, "app/SpinTheWheel/page.tsx"), "utf8");
 const spinSocialCard = readFileSync(join(root, "app/SpinTheWheel/social-card.tsx"), "utf8");
-const spinOpenGraphImage = readFileSync(join(root, "app/SpinTheWheel/opengraph-image.tsx"), "utf8");
-const spinTwitterImage = readFileSync(join(root, "app/SpinTheWheel/twitter-image.tsx"), "utf8");
+const spinShareCardRoute = readFileSync(join(root, "app/api/spin/share-card/route.tsx"), "utf8");
 const storageGatedRoutes = [
   "app/api/spin/auth/x/start/route.ts",
   "app/api/spin/auth/x/callback/route.ts",
@@ -250,7 +249,8 @@ if (!/requireCheckerWallet/.test(checkerData) || !/on conflict \(wallet_address\
 if (!/018_checker_wallet_reset/.test(migration) || !/delete from checker_wallets/.test(migration) || !/RESET_MIGRATION_ID/.test(readFileSync(join(root, "lib/checker/schema.ts"), "utf8"))) failures.push("The requested one-time Checker wallet reset is missing.");
 if (!/parseCheckerImportDraft/.test(`${checkerImport}\n${checkerData}`) || !/fixedPrefix/.test(checkerImport) || !/duplicatesRemoved/.test(checkerImport) || !/crossListConflicts/.test(checkerImport)) failures.push("Checker imports do not repair raw wallet columns and de-duplicate them safely.");
 if (!/operation === "preview"/.test(checkerAdminRoute) || !/previewCheckerWallets/.test(`${checkerAdminRoute}\n${checkerData}`) || !/ALREADY EXISTS/.test(checkerAdminApp) || !/NEW TO ADD/.test(checkerAdminApp)) failures.push("Checker imports do not preview saved versus new wallets against the database.");
-if (!/summary_large_image/.test(spinLayout) || !/renderSpinSocialCard/.test(`${spinSocialCard}\n${spinOpenGraphImage}\n${spinTwitterImage}`) || !/SPIN THE/.test(spinSocialCard)) failures.push("SpinTheWheel referral links are missing branded Open Graph or X preview artwork.");
+if (!/jsonb_to_recordset/.test(checkerData) || !/CHECKER_IMPORT_UNAVAILABLE/.test(checkerData) || !/after\(async \(\) =>/.test(checkerAdminRoute)) failures.push("Checker bulk writes are not resilient or can still fail after a successful audit-independent commit.");
+if (!/generateMetadata/.test(spinPage) || !/summary_large_image/.test(spinPage) || !/cardUrl\.searchParams\.set\("ref", referralCode\)/.test(spinPage) || !/renderSpinSocialCard\(referralCode\)/.test(spinShareCardRoute) || !/INVITE CODE/.test(spinSocialCard)) failures.push("SpinTheWheel referral links are missing referral-specific Open Graph or X preview artwork.");
 if (!/xShareUrl\(state\.campaign\.shopPostText, referralLink\)/.test(wheelApp)) failures.push("The SpinTheWheel campaign share composer is missing the user's referral URL.");
 
 if (!/create table if not exists spin_shop_items/.test(migration) || !/create table if not exists spin_shop_purchases/.test(migration) || !/points_spent >= 0 and points_spent <= points/.test(migration)) failures.push("The points shop ledger or spendable-balance constraint is missing.");

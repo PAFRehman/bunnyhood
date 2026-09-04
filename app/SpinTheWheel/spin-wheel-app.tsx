@@ -321,7 +321,7 @@ export function SpinWheelApp() {
     [claimed],
   );
   const referralLink = state?.referral?.code
-    ? `${origin}/SpinTheWheel?ref=${encodeURIComponent(state.referral.code)}`
+    ? `${origin}/SpinTheWheel?ref=${encodeURIComponent(state.referral.code)}&card=v2`
     : `${origin}/SpinTheWheel`;
   const referralShare = xShareUrl(
     "Join me in Bunny Hood. Connect X, complete the campaign, and spin with my invite link.",

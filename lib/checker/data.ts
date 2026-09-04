@@ -220,63 +220,68 @@ export async function upsertCheckerWallets(
 ) {
   await ensureCheckerSchema();
 
-  return inTransaction(async (sql) => {
-    await sql`
-      select pg_advisory_xact_lock(
-        hashtext('bunny-hood-checker-import')
-      )
-    `;
-
-    const { preview, entriesToWrite } = await inspectCheckerImportWithSql(sql, draft);
-
-    for (
-      let offset = 0;
-      offset < entriesToWrite.length;
-      offset += 500
-    ) {
-      const batch = entriesToWrite.slice(
-        offset,
-        offset + 500,
-      );
-
-      const parameters: string[] = [];
-
-      const values = batch.map(
-        (entry, index) => {
-          parameters.push(
-            entry.walletAddress,
-            entry.eligibilityType,
-          );
-
-          const parameter = index * 2;
-
-          return `($${parameter + 1}, $${parameter + 2}, now(), now())`;
-        },
-      );
-
-      await sql.unsafe(
-        `insert into checker_wallets (
-          wallet_address,
-          eligibility_type,
-          imported_at,
-          updated_at
+  try {
+    return await inTransaction(async (sql) => {
+      await sql`
+        select pg_advisory_xact_lock(
+          hashtext('bunny-hood-checker-import')
         )
-        values ${values.join(",")}
-        on conflict (wallet_address)
-        do update set
-          eligibility_type = excluded.eligibility_type,
-          imported_at = now(),
-          updated_at = now()`,
-        parameters,
-      );
-    }
+      `;
 
-    return {
-      preview,
-      saved: entriesToWrite.length,
-      stats: await checkerStatsWithSql(sql),
-    };
-  });
+      const { preview, entriesToWrite } = await inspectCheckerImportWithSql(sql, draft);
+
+      for (
+        let offset = 0;
+        offset < entriesToWrite.length;
+        offset += 500
+      ) {
+        const batch = entriesToWrite.slice(offset, offset + 500);
+        const payload = JSON.stringify(batch.map((entry) => ({
+          wallet_address: entry.walletAddress,
+          eligibility_type: entry.eligibilityType,
+        })));
+
+        // One JSON parameter per batch avoids large dynamic VALUES statements
+        // and works reliably for spreadsheet-sized Neon imports.
+        await sql`
+          insert into checker_wallets (
+            wallet_address,
+            eligibility_type,
+            imported_at,
+            updated_at
+          )
+          select
+            input.wallet_address,
+            input.eligibility_type,
+            now(),
+            now()
+          from jsonb_to_recordset(${payload}::jsonb) as input(
+            wallet_address text,
+            eligibility_type text
+          )
+          on conflict (wallet_address)
+          do update set
+            eligibility_type = excluded.eligibility_type,
+            imported_at = now(),
+            updated_at = now()
+        `;
+      }
+
+      return {
+        preview,
+        saved: entriesToWrite.length,
+        stats: await checkerStatsWithSql(sql),
+      };
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown database error";
+    console.error("Checker wallet bulk import failed.", message);
+    throw new HttpError(
+      503,
+      "The wallet import could not be saved. No partial changes were kept. Please try again.",
+      "CHECKER_IMPORT_UNAVAILABLE",
+    );
+  }
 }
 
 export async function deleteCheckerWallet(

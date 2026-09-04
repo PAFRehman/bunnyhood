@@ -9,9 +9,21 @@ import {
 import { recordAdminAction } from "@/lib/spin/audit";
 import { requireSpinAdmin } from "@/lib/spin/admin";
 import { assertSameOrigin, HttpError, json, readJson, routeError } from "@/lib/spin/http";
+import { after } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+function auditCheckerAction(action: string, metadata: Record<string, unknown>) {
+  after(async () => {
+    try {
+      await recordAdminAction(action, metadata);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown audit error";
+      console.error("Checker admin audit could not be recorded.", message);
+    }
+  });
+}
 
 export async function GET(request: Request) {
   try {
@@ -46,7 +58,7 @@ export async function POST(request: Request) {
     }
 
     const result = await upsertCheckerWallets(draft);
-    await recordAdminAction("checker_wallets_imported", {
+    auditCheckerAction("checker_wallets_imported", {
       saved: result.saved,
       newWallets: result.preview.newWallets,
       alreadyExists: result.preview.alreadyExists,
@@ -67,7 +79,7 @@ export async function DELETE(request: Request) {
     assertSameOrigin(request);
     const body = await readJson<{ walletAddress?: string }>(request, 2_048);
     const walletAddress = await deleteCheckerWallet(body.walletAddress ?? "");
-    await recordAdminAction("checker_wallet_removed", { walletAddress });
+    auditCheckerAction("checker_wallet_removed", { walletAddress });
     return json({ ok: true });
   } catch (error) {
     return routeError(error);
