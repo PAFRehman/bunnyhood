@@ -17,6 +17,11 @@ type PrimaryTaskType = keyof typeof PRIMARY_TASK_INDEX;
 type ExtraTaskType = keyof typeof EXTRA_TASK_INDEX;
 type TaskBit = { column: "task_claimed_bits" | "extra_task_claimed_bits"; value: string };
 
+const PERMANENT_TASK_BITS: Partial<Record<CompactTaskType, number>> = {
+  follow: 1,
+  notifications: 2,
+};
+
 function roundBit(rawRoundNumber: number, tasksPerRound: number, offset = 0) {
   const roundNumber = Number(rawRoundNumber);
   if (!Number.isInteger(roundNumber) || roundNumber < 1 || roundNumber > 20) {
@@ -53,6 +58,14 @@ export async function hasTaskReward(
   roundNumber: number,
   task: CompactTaskType,
 ) {
+  const permanentBit = PERMANENT_TASK_BITS[task];
+  if (permanentBit) {
+    const rows = await sql<{ claimed: boolean }[]>`
+      select (permanent_task_claimed_bits & ${permanentBit}::smallint) <> 0 as claimed
+      from spin_users where id = ${userId}::uuid limit 1
+    `;
+    return Boolean(rows[0]?.claimed);
+  }
   const bit = taskProgressBit(roundNumber, task);
   if (bit.column === "extra_task_claimed_bits") {
     const rows = await sql<{ claimed: boolean }[]>`
@@ -83,6 +96,18 @@ export async function markTaskReward(
   roundNumber: number,
   task: CompactTaskType,
 ) {
+  const permanentBit = PERMANENT_TASK_BITS[task];
+  if (permanentBit) {
+    const rows = await sql<{ inserted: boolean }[]>`
+      update spin_users
+      set permanent_task_claimed_bits = permanent_task_claimed_bits | ${permanentBit}::smallint,
+          updated_at = now()
+      where id = ${userId}::uuid
+        and (permanent_task_claimed_bits & ${permanentBit}::smallint) = 0
+      returning true as inserted
+    `;
+    return Boolean(rows[0]?.inserted);
+  }
   const bit = taskProgressBit(roundNumber, task);
   if (bit.column === "extra_task_claimed_bits") {
     const rows = await sql<{ inserted: boolean }[]>`
@@ -187,15 +212,17 @@ export async function getRoundProgress(
     awarded_spins: number;
   }[]>`
     select
-      (extra_task_claimed_bits & ${taskBits.follow}::bigint) <> 0 as follow_claimed,
-      (task_claimed_bits & ${taskBits.like}::bigint) <> 0 as like_claimed,
-      (task_claimed_bits & ${taskBits.repost}::bigint) <> 0 as repost_claimed,
-      (task_claimed_bits & ${taskBits.comment}::bigint) <> 0 as comment_claimed,
-      (extra_task_claimed_bits & ${taskBits.notifications}::bigint) <> 0 as notifications_claimed,
-      (code_redeemed_bits & ${redemptionBit}::bigint) <> 0 as code_redeemed,
-      coalesce((code_spin_awards ->> ${String(roundNumber)})::integer, 0) as awarded_spins
-    from spin_user_campaign_progress
-    where user_id = ${userId}::uuid and campaign_id = ${campaignId}::uuid
+      (users.permanent_task_claimed_bits & 1) <> 0 as follow_claimed,
+      (coalesce(progress.task_claimed_bits, 0) & ${taskBits.like}::bigint) <> 0 as like_claimed,
+      (coalesce(progress.task_claimed_bits, 0) & ${taskBits.repost}::bigint) <> 0 as repost_claimed,
+      (coalesce(progress.task_claimed_bits, 0) & ${taskBits.comment}::bigint) <> 0 as comment_claimed,
+      (users.permanent_task_claimed_bits & 2) <> 0 as notifications_claimed,
+      (coalesce(progress.code_redeemed_bits, 0) & ${redemptionBit}::bigint) <> 0 as code_redeemed,
+      coalesce((progress.code_spin_awards ->> ${String(roundNumber)})::integer, 0) as awarded_spins
+    from spin_users users
+    left join spin_user_campaign_progress progress
+      on progress.user_id = users.id and progress.campaign_id = ${campaignId}::uuid
+    where users.id = ${userId}::uuid
     limit 1
   `;
   const row = rows[0];

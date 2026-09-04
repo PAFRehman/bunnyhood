@@ -21,6 +21,8 @@ type BunnyProfileRow = {
   last_fed_day: string | null;
   last_feed_idempotency_key: string | null;
   trade_ready: boolean;
+  death_count: number;
+  last_death_at: Date | string | null;
   total_trades: number;
 };
 
@@ -39,11 +41,16 @@ export type BunnyState = {
   fedToday: boolean;
   canFeed: boolean;
   tradeReady: boolean;
+  fcfsEligible: boolean;
+  gtdEligible: boolean;
+  diedFromHunger: boolean;
+  deathOnBreak: boolean;
+  deathCount: number;
   lastFedDay: string | null;
   nextFeedAt: string;
 };
 
-const EVOLUTION_NAMES = ["NEW ARRIVAL", "AWAKE", "GROWING", "HOOD RISING", "FULLY EVOLVED"] as const;
+const EVOLUTION_NAMES = ["NEW ARRIVAL", "AWAKE", "GROWING", "HOOD RISING", "FCFS READY"] as const;
 
 function validUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -61,17 +68,17 @@ async function getBunnyClock(sql: SpinDb): Promise<BunnyClock> {
   return rows[0];
 }
 
-function currentStreak(profile: BunnyProfileRow | undefined, clock: BunnyClock) {
+function currentStreak(profile: BunnyProfileRow | undefined, clock: BunnyClock, deathOnBreak: boolean) {
   if (!profile) return 0;
-  if (profile.trade_ready) return Number(profile.streak_days);
+  if (!deathOnBreak) return Number(profile.streak_days);
   if (profile.last_fed_day === clock.today || profile.last_fed_day === clock.yesterday) {
     return Number(profile.streak_days);
   }
   return 0;
 }
 
-function evolutionLevel(streakDays: number, targetDays: number, tradeReady: boolean) {
-  if (tradeReady || streakDays >= targetDays) return 4;
+function evolutionLevel(streakDays: number, targetDays: number, fcfsEligible: boolean) {
+  if (fcfsEligible || streakDays >= targetDays) return 4;
   if (streakDays < 1) return 0;
   const progress = streakDays / targetDays;
   if (progress >= 2 / 3) return 3;
@@ -79,11 +86,24 @@ function evolutionLevel(streakDays: number, targetDays: number, tradeReady: bool
   return 1;
 }
 
+function qualifiesForGtd(
+  settings: SpinSettings,
+  streakDays: number,
+  pointsAvailable: number,
+) {
+  if (!settings.bunnyGtdEnabled || streakDays < 1) return false;
+  const hasDays = streakDays >= settings.bunnyGtdStreakDays;
+  const hasPoints = pointsAvailable >= settings.bunnyGtdPointsRequired;
+  if (settings.bunnyGtdRequirementMode === "days") return hasDays;
+  if (settings.bunnyGtdRequirementMode === "points") return hasPoints;
+  return hasDays && hasPoints;
+}
+
 async function readBunnyProfile(sql: SpinDb, userId: string) {
   const rows = await sql<BunnyProfileRow[]>`
     select profiles.cycle_number, profiles.streak_days, profiles.longest_streak,
       profiles.total_carrots, profiles.last_fed_day::text, profiles.last_feed_idempotency_key::text,
-      profiles.trade_ready,
+      profiles.trade_ready, profiles.death_count, profiles.last_death_at,
       (select count(*)::int from spin_bunny_trades trades where trades.user_id = profiles.user_id) as total_trades
     from spin_bunny_profiles profiles
     where profiles.user_id = ${userId}::uuid
@@ -97,15 +117,27 @@ export async function getBunnyState(
   userId: string,
   knownSettings?: SpinSettings,
 ): Promise<BunnyState> {
-  const [clock, settings, profile] = await Promise.all([
+  const [clock, settings, profile, users] = await Promise.all([
     getBunnyClock(sql),
     knownSettings ? Promise.resolve(knownSettings) : getSpinSettings(sql),
     readBunnyProfile(sql, userId),
+    sql<{ points: number | string; points_spent: number | string }[]>`
+      select points, points_spent from spin_users where id = ${userId}::uuid limit 1
+    `,
   ]);
-  const streakDays = currentStreak(profile, clock);
-  const tradeReady = Boolean(profile?.trade_ready) || streakDays >= settings.bunnyStreakDays;
+  const streakDays = currentStreak(profile, clock, settings.bunnyDeathOnBreak);
+  const pointsAvailable = Math.max(0, Number(users[0]?.points ?? 0) - Number(users[0]?.points_spent ?? 0));
+  const fcfsEligible = streakDays >= settings.bunnyStreakDays;
+  const gtdEligible = qualifiesForGtd(settings, streakDays, pointsAvailable);
+  const diedFromHunger = Boolean(
+    settings.bunnyDeathOnBreak
+    && profile
+    && Number(profile.streak_days) > 0
+    && profile.last_fed_day !== clock.today
+    && profile.last_fed_day !== clock.yesterday,
+  );
   const fedToday = profile?.last_fed_day === clock.today;
-  const level = evolutionLevel(streakDays, settings.bunnyStreakDays, tradeReady);
+  const level = evolutionLevel(streakDays, settings.bunnyStreakDays, fcfsEligible);
   return {
     carrotCost: BUNNY_CARROT_COST,
     cycleNumber: Number(profile?.cycle_number ?? 1),
@@ -119,8 +151,13 @@ export async function getBunnyState(
     evolutionName: EVOLUTION_NAMES[level],
     progressPercent: Math.min(100, Math.round((streakDays / settings.bunnyStreakDays) * 100)),
     fedToday,
-    canFeed: !fedToday && !tradeReady,
-    tradeReady,
+    canFeed: !fedToday,
+    tradeReady: fcfsEligible,
+    fcfsEligible,
+    gtdEligible,
+    diedFromHunger,
+    deathOnBreak: settings.bunnyDeathOnBreak,
+    deathCount: Number(profile?.death_count ?? 0),
     lastFedDay: profile?.last_fed_day ?? null,
     nextFeedAt: `${clock.tomorrow}T00:00:00.000Z`,
   };
@@ -135,6 +172,7 @@ export async function feedBunny(user: SpinUser, idempotencyKey: string) {
   await enforceRateLimit(`bunny-feed:${user.id}`, 8, 60, database);
 
   return inTransaction(async (sql) => {
+    await sql`select pg_advisory_xact_lock_shared(hashtext('bunny-hood-active-campaign'))`;
     const settings = await getSpinSettings(sql);
     const clock = await getBunnyClock(sql);
     const users = await sql<{ points: number | string; points_spent: number | string }[]>`
@@ -152,7 +190,7 @@ export async function feedBunny(user: SpinUser, idempotencyKey: string) {
     const profiles = await sql<BunnyProfileRow[]>`
       select profiles.cycle_number, profiles.streak_days, profiles.longest_streak,
         profiles.total_carrots, profiles.last_fed_day::text, profiles.last_feed_idempotency_key::text,
-        profiles.trade_ready,
+        profiles.trade_ready, profiles.death_count, profiles.last_death_at,
         (select count(*)::int from spin_bunny_trades trades where trades.user_id = profiles.user_id) as total_trades
       from spin_bunny_profiles profiles
       where profiles.user_id = ${user.id}::uuid
@@ -163,14 +201,11 @@ export async function feedBunny(user: SpinUser, idempotencyKey: string) {
       return {
         fed: true,
         repeated: true,
+        startedNewCycleAfterDeath: false,
         pointsSpent: BUNNY_CARROT_COST,
         pointsAvailable: Number(currentUser.points) - Number(currentUser.points_spent),
         bunny: await getBunnyState(sql, user.id, settings),
       };
-    }
-    const activeStreak = currentStreak(profile, clock);
-    if (profile.trade_ready || activeStreak >= settings.bunnyStreakDays) {
-      throw new HttpError(409, "Your Bunny is fully evolved. Trade it before starting a new cycle.", "BUNNY_TRADE_READY");
     }
     if (profile.last_fed_day === clock.today) {
       throw new HttpError(409, "Your Bunny has already eaten today. The next carrot opens at 00:00 UTC.", "BUNNY_ALREADY_FED");
@@ -180,7 +215,12 @@ export async function feedBunny(user: SpinUser, idempotencyKey: string) {
     if (pointsAvailable < BUNNY_CARROT_COST) {
       throw new HttpError(409, `You need ${BUNNY_CARROT_COST - pointsAvailable} more points for today's carrot.`, "NOT_ENOUGH_POINTS");
     }
-    const newStreak = profile.last_fed_day === clock.yesterday
+    const diedFromHunger = Boolean(
+      settings.bunnyDeathOnBreak
+      && Number(profile.streak_days) > 0
+      && profile.last_fed_day !== clock.yesterday,
+    );
+    const newStreak = profile.last_fed_day === clock.yesterday || !settings.bunnyDeathOnBreak
       ? Number(profile.streak_days) + 1
       : 1;
     const updatedUsers = await sql<{ points_available: number | string }[]>`
@@ -212,18 +252,22 @@ export async function feedBunny(user: SpinUser, idempotencyKey: string) {
     }
     await sql`
       update spin_bunny_profiles
-      set streak_days = ${newStreak},
+      set cycle_number = cycle_number + ${diedFromHunger ? 1 : 0},
+          streak_days = ${newStreak},
           longest_streak = greatest(longest_streak, ${newStreak}),
           total_carrots = total_carrots + 1,
           last_fed_day = ${clock.today}::date,
           last_feed_idempotency_key = ${idempotencyKey}::uuid,
-          trade_ready = trade_ready or ${newStreak >= settings.bunnyStreakDays},
+          trade_ready = ${newStreak >= settings.bunnyStreakDays},
+          death_count = death_count + ${diedFromHunger ? 1 : 0},
+          last_death_at = case when ${diedFromHunger} then now() else last_death_at end,
           updated_at = now()
       where user_id = ${user.id}::uuid
     `;
     return {
       fed: true,
       repeated: false,
+      startedNewCycleAfterDeath: diedFromHunger,
       pointsSpent: BUNNY_CARROT_COST,
       pointsAvailable: Number(updatedUsers[0].points_available),
       bunny: await getBunnyState(sql, user.id, settings),
@@ -243,10 +287,11 @@ export async function tradeBunny(user: SpinUser, rawRewardType: string, idempote
   await enforceRateLimit(`bunny-trade:${user.id}`, 8, 60, database);
 
   return inTransaction(async (sql) => {
+    await sql`select pg_advisory_xact_lock_shared(hashtext('bunny-hood-active-campaign'))`;
     const settings = await getSpinSettings(sql);
     const clock = await getBunnyClock(sql);
-    const users = await sql<{ total_wins: number }[]>`
-      select total_wins from spin_users where id = ${user.id}::uuid for update
+    const users = await sql<{ total_wins: number; points: number | string; points_spent: number | string }[]>`
+      select total_wins, points, points_spent from spin_users where id = ${user.id}::uuid for update
     `;
     const currentUser = users[0];
     if (!currentUser) throw new HttpError(401, "Connect X to continue.", "AUTH_REQUIRED");
@@ -272,16 +317,20 @@ export async function tradeBunny(user: SpinUser, rawRewardType: string, idempote
     const profiles = await sql<BunnyProfileRow[]>`
       select profiles.cycle_number, profiles.streak_days, profiles.longest_streak,
         profiles.total_carrots, profiles.last_fed_day::text, profiles.last_feed_idempotency_key::text,
-        profiles.trade_ready,
+        profiles.trade_ready, profiles.death_count, profiles.last_death_at,
         (select count(*)::int from spin_bunny_trades trades where trades.user_id = profiles.user_id) as total_trades
       from spin_bunny_profiles profiles
       where profiles.user_id = ${user.id}::uuid
       for update
     `;
     const profile = profiles[0];
-    const activeStreak = currentStreak(profile, clock);
-    if (!profile || (!profile.trade_ready && activeStreak < settings.bunnyStreakDays)) {
-      throw new HttpError(409, "Keep the daily feeding streak alive before trading your Bunny.", "BUNNY_NOT_EVOLVED");
+    const activeStreak = currentStreak(profile, clock, settings.bunnyDeathOnBreak);
+    const pointsAvailable = Number(currentUser.points) - Number(currentUser.points_spent);
+    const rewardEligible = rawRewardType === "GTD"
+      ? qualifiesForGtd(settings, activeStreak, pointsAvailable)
+      : activeStreak >= settings.bunnyStreakDays;
+    if (!profile || !rewardEligible) {
+      throw new HttpError(409, "Keep evolving your Bunny before selling it for this reward.", "BUNNY_NOT_EVOLVED");
     }
 
     const prizeType = rawRewardType === "GTD" ? "GTD" : "FCFS1";
@@ -297,10 +346,11 @@ export async function tradeBunny(user: SpinUser, rawRewardType: string, idempote
     const winId = randomUUID();
     await sql`
       insert into spin_bunny_trades (
-        id, user_id, cycle_number, reward_type, streak_days, idempotency_key
+        id, user_id, cycle_number, reward_type, streak_days,
+        points_available_at_trade, idempotency_key
       ) values (
         ${tradeId}, ${user.id}::uuid, ${profile.cycle_number}, ${rawRewardType},
-        ${profile.streak_days}, ${idempotencyKey}::uuid
+        ${activeStreak}, ${pointsAvailable}, ${idempotencyKey}::uuid
       )
     `;
     await sql`

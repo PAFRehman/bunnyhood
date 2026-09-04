@@ -187,6 +187,10 @@ export async function getAdminOverview() {
       total_feeds: number | string;
       fed_today: number;
       trade_ready: number;
+      fcfs_ready: number;
+      gtd_ready: number;
+      dead_bunnies: number;
+      total_deaths: number | string;
       total_trades: number | string;
       gtd_trades: number;
       fcfs_trades: number;
@@ -197,17 +201,49 @@ export async function getAdminOverview() {
         count(*) filter (
           where profiles.last_fed_day = (clock_timestamp() at time zone 'UTC')::date
         )::int as fed_today,
-        count(*) filter (
-          where profiles.trade_ready or (
-            profiles.last_fed_day >= (clock_timestamp() at time zone 'UTC')::date - 1
-            and profiles.streak_days >= ${settings.bunnyStreakDays}
+        count(*) filter (where
+          profiles.streak_days >= ${settings.bunnyStreakDays}
+          and (
+            not ${settings.bunnyDeathOnBreak}
+            or profiles.last_fed_day >= (clock_timestamp() at time zone 'UTC')::date - 1
           )
         )::int as trade_ready,
+        count(*) filter (where
+          profiles.streak_days >= ${settings.bunnyStreakDays}
+          and (
+            not ${settings.bunnyDeathOnBreak}
+            or profiles.last_fed_day >= (clock_timestamp() at time zone 'UTC')::date - 1
+          )
+        )::int as fcfs_ready,
+        count(*) filter (where
+          ${settings.bunnyGtdEnabled}
+          and profiles.streak_days >= 1
+          and (
+            not ${settings.bunnyDeathOnBreak}
+            or profiles.last_fed_day >= (clock_timestamp() at time zone 'UTC')::date - 1
+          )
+          and (
+            (${settings.bunnyGtdRequirementMode}::text = 'days'
+              and profiles.streak_days >= ${settings.bunnyGtdStreakDays})
+            or (${settings.bunnyGtdRequirementMode}::text = 'points'
+              and users.points - users.points_spent >= ${settings.bunnyGtdPointsRequired})
+            or (${settings.bunnyGtdRequirementMode}::text = 'both'
+              and profiles.streak_days >= ${settings.bunnyGtdStreakDays}
+              and users.points - users.points_spent >= ${settings.bunnyGtdPointsRequired})
+          )
+        )::int as gtd_ready,
+        count(*) filter (where
+          ${settings.bunnyDeathOnBreak}
+          and profiles.streak_days > 0
+          and profiles.last_fed_day < (clock_timestamp() at time zone 'UTC')::date - 1
+        )::int as dead_bunnies,
+        coalesce(sum(profiles.death_count), 0)::text as total_deaths,
         (select count(*)::bigint from spin_bunny_trades)::text as total_trades,
         (select count(*)::int from spin_bunny_trades where reward_type = 'GTD') as gtd_trades,
         (select count(*)::int from spin_bunny_trades where reward_type = 'FCFS') as fcfs_trades,
         coalesce(max(profiles.longest_streak), 0)::int as longest_streak
       from spin_bunny_profiles profiles
+      join spin_users users on users.id = profiles.user_id
     `,
   ]);
 
@@ -266,6 +302,10 @@ export async function getAdminOverview() {
       totalFeeds: numeric(bunnyStats[0]?.total_feeds),
       fedToday: numeric(bunnyStats[0]?.fed_today),
       tradeReady: numeric(bunnyStats[0]?.trade_ready),
+      fcfsReady: numeric(bunnyStats[0]?.fcfs_ready),
+      gtdReady: numeric(bunnyStats[0]?.gtd_ready),
+      deadBunnies: numeric(bunnyStats[0]?.dead_bunnies),
+      totalDeaths: numeric(bunnyStats[0]?.total_deaths),
       totalTrades: numeric(bunnyStats[0]?.total_trades),
       gtdTrades: numeric(bunnyStats[0]?.gtd_trades),
       fcfsTrades: numeric(bunnyStats[0]?.fcfs_trades),

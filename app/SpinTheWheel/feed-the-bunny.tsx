@@ -18,6 +18,11 @@ export type BunnyUiState = {
   fedToday: boolean;
   canFeed: boolean;
   tradeReady: boolean;
+  fcfsEligible: boolean;
+  gtdEligible: boolean;
+  diedFromHunger: boolean;
+  deathOnBreak: boolean;
+  deathCount: number;
   lastFedDay: string | null;
   nextFeedAt: string;
 };
@@ -59,18 +64,17 @@ export function FeedTheBunny({
 
   const feedLabel = useMemo(() => {
     if (busy === "feed") return "FEEDING…";
-    if (bunny.tradeReady) return "BUNNY READY TO TRADE";
     if (bunny.fedToday) return `FED TODAY · ${countdown}`;
     if (points < bunny.carrotCost) return `NEED ${bunny.carrotCost - points} MORE POINT${bunny.carrotCost - points === 1 ? "" : "S"}`;
     return `BUY & FEED CARROT · ${bunny.carrotCost} POINTS`;
   }, [busy, bunny, countdown, points]);
 
   return (
-    <section className={`feed-the-bunny bunny-level-${bunny.evolutionLevel} ${animating ? "is-feeding" : ""}`} id="feed-the-bunny">
+    <section className={`feed-the-bunny bunny-level-${bunny.evolutionLevel} ${animating ? "is-feeding" : ""} ${bunny.diedFromHunger ? "bunny-starved" : ""}`} id="feed-the-bunny">
       <div className="bunny-orbit bunny-orbit-one" aria-hidden="true" />
       <div className="bunny-orbit bunny-orbit-two" aria-hidden="true" />
       <header>
-        <div><p className="section-kicker">DAILY POINTS RITUAL · 00:00 UTC</p><h2>FEED THE<br /><em>BUNNYHOOD.</em></h2><p>One carrot. One UTC day. Keep the streak alive, evolve your Bunny, then trade it for GTD or FCFS.</p></div>
+        <div><p className="section-kicker">DAILY POINTS RITUAL · 00:00 UTC</p><h2>FEED THE<br /><em>BUNNYHOOD.</em></h2><p>Feed one carrot per UTC day, evolve your Bunny, and unlock an FCFS exchange. You can sell it or keep evolving.</p></div>
         <div className="bunny-cycle"><span>BUNNY CYCLE</span><strong>#{String(bunny.cycleNumber).padStart(2, "0")}</strong><small>{bunny.totalTrades} evolution{bunny.totalTrades === 1 ? "" : "s"} traded</small></div>
       </header>
 
@@ -87,22 +91,25 @@ export function FeedTheBunny({
         </div>
 
         <div className="bunny-control-deck">
+          {bunny.diedFromHunger && <div className="bunny-hunger-alert" role="alert"><strong>Your Bunny died from hunger.</strong><span>A full UTC feed day was missed, so this evolution reset. Feed a carrot to start again.</span></div>}
           <div className="bunny-streak-head"><div><span>CURRENT STREAK</span><strong>{bunny.streakDays}<small> DAYS</small></strong></div><div><span>BEST STREAK</span><strong>{bunny.longestStreak}<small> DAYS</small></strong></div></div>
           <div className="bunny-progress" aria-label={`${bunny.progressPercent}% evolved`}><i style={{ width: `${bunny.progressPercent}%` }} /></div>
-          <div className="bunny-progress-copy"><span>{bunny.progressPercent}% EVOLVED</span><strong>{bunny.tradeReady ? "TRADE UNLOCKED" : `${bunny.daysUntilEvolution} DAY${bunny.daysUntilEvolution === 1 ? "" : "S"} TO GO`}</strong></div>
+          <div className="bunny-progress-copy"><span>DAY {bunny.streakDays} OF {bunny.targetDays}</span><strong>{bunny.fcfsEligible ? "FCFS SELL UNLOCKED" : `KEEP EVOLVING · ${bunny.daysUntilEvolution} DAY${bunny.daysUntilEvolution === 1 ? "" : "S"} TO GO`}</strong></div>
           <div className="bunny-milestones" aria-hidden="true">{[0, 1, 2, 3, 4].map((stage) => <i className={stage <= bunny.evolutionLevel ? "active" : ""} key={stage}><span>{stage}</span></i>)}</div>
 
-          {!bunny.tradeReady ? (
-            <>
-              <button className="feed-carrot-button" type="button" disabled={!bunny.canFeed || points < bunny.carrotCost || busy !== null} onClick={onFeed}>{feedLabel}<span aria-hidden="true">🥕</span></button>
-              <div className="bunny-feed-meta"><span>NEXT DAILY FEED</span><strong>{bunny.fedToday ? countdown : "AVAILABLE NOW"}</strong><small>{bunny.totalCarrots} total carrots fed</small></div>
-            </>
-          ) : (
+          <button className="feed-carrot-button" type="button" disabled={!bunny.canFeed || points < bunny.carrotCost || busy !== null} onClick={onFeed}>{feedLabel}<span aria-hidden="true">🥕</span></button>
+          <div className="bunny-feed-meta"><span>NEXT DAILY FEED</span><strong>{bunny.fedToday ? countdown : "AVAILABLE NOW"}</strong><small>{bunny.totalCarrots} total carrots fed{bunny.fcfsEligible ? " · keep evolving or sell below" : ""}</small></div>
+
+          {(bunny.fcfsEligible || bunny.gtdEligible) ? (
             <div className="bunny-trade-zone">
-              <span>FULL EVOLUTION COMPLETE</span><h3>Trade your Bunny.</h3><p>Choose GTD or FCFS. Your reward becomes a permanent win ready for its receiving wallet, and a new Bunny cycle begins.</p>
-              <div><button type="button" disabled={busy !== null || roleWins.GTD >= 3} onClick={() => onTrade("GTD")}>{busy === "GTD" ? "TRADING…" : roleWins.GTD >= 3 ? "GTD LIMIT FULL" : "TRADE FOR GTD"}</button><button type="button" disabled={busy !== null || roleWins.FCFS1 >= 3} onClick={() => onTrade("FCFS")}>{busy === "FCFS" ? "TRADING…" : roleWins.FCFS1 >= 3 ? "FCFS LIMIT FULL" : "TRADE FOR FCFS"}</button></div>
+              <span>EVOLUTION EXCHANGE READY</span><h3>Sell your Bunny.</h3><p>Selling creates a permanent wallet-ready win and starts a fresh Bunny cycle. Or keep feeding this Bunny to evolve further.</p>
+              <div>
+                {bunny.fcfsEligible && <button type="button" disabled={busy !== null || roleWins.FCFS1 >= 3} onClick={() => onTrade("FCFS")}>{busy === "FCFS" ? "SELLING…" : roleWins.FCFS1 >= 3 ? "FCFS LIMIT FULL" : "SELL BUNNY FOR FCFS"}</button>}
+                {bunny.gtdEligible && <button type="button" disabled={busy !== null || roleWins.GTD >= 3} onClick={() => onTrade("GTD")}>{busy === "GTD" ? "SELLING…" : roleWins.GTD >= 3 ? "GTD LIMIT FULL" : "SELL BUNNY FOR GTD"}</button>}
+              </div>
+              <strong className="bunny-keep-evolving">KEEP EVOLVING · NEXT FEED {bunny.fedToday ? countdown : "AVAILABLE NOW"}</strong>
             </div>
-          )}
+          ) : <p className="bunny-keep-evolving">KEEP EVOLVING · FCFS UNLOCKS AT DAY {bunny.targetDays}</p>}
         </div>
       </div>
     </section>
