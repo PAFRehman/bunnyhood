@@ -19,7 +19,10 @@ type CheckerWalletRow = {
 };
 
 const MAX_IMPORT_WALLETS = 10_000;
+const WRITE_BATCH_SIZE = 250;
 const EVM_WALLET = /^0x[0-9a-f]{40}$/;
+
+type CheckerImportStage = "start" | "inspect" | "write" | "stats";
 
 export type CheckerImportPreview = Omit<CheckerImportDraft, "entries"> & {
   alreadyExists: number;
@@ -220,53 +223,51 @@ export async function upsertCheckerWallets(
 ) {
   await ensureCheckerSchema();
 
+  const progress: { stage: CheckerImportStage; failedBatch: number } = {
+    stage: "start",
+    failedBatch: 0,
+  };
+
   try {
     return await inTransaction(async (sql) => {
-      await sql`
-        select pg_advisory_xact_lock(
-          hashtext('bunny-hood-checker-import')
-        )
-      `;
-
+      progress.stage = "inspect";
       const { preview, entriesToWrite } = await inspectCheckerImportWithSql(sql, draft);
 
       for (
         let offset = 0;
         offset < entriesToWrite.length;
-        offset += 500
+        offset += WRITE_BATCH_SIZE
       ) {
-        const batch = entriesToWrite.slice(offset, offset + 500);
-        const payload = JSON.stringify(batch.map((entry) => ({
-          wallet_address: entry.walletAddress,
-          eligibility_type: entry.eligibilityType,
-        })));
+        progress.stage = "write";
+        progress.failedBatch = Math.floor(offset / WRITE_BATCH_SIZE) + 1;
+        const batch = entriesToWrite.slice(offset, offset + WRITE_BATCH_SIZE);
+        const parameters: string[] = [];
+        const values = batch.map((entry, index) => {
+          parameters.push(entry.walletAddress, entry.eligibilityType);
+          const parameter = index * 2;
+          return `($${parameter + 1}, $${parameter + 2}, now(), now())`;
+        });
 
-        // One JSON parameter per batch avoids large dynamic VALUES statements
-        // and works reliably for spreadsheet-sized Neon imports.
-        await sql`
-          insert into checker_wallets (
+        // Keep the SQL deliberately simple for Neon/PgBouncer. Small parameterized
+        // VALUES batches avoid JSON record expansion and oversized statements.
+        await sql.unsafe(
+          `insert into checker_wallets (
             wallet_address,
             eligibility_type,
             imported_at,
             updated_at
           )
-          select
-            input.wallet_address,
-            input.eligibility_type,
-            now(),
-            now()
-          from jsonb_to_recordset(${payload}::jsonb) as input(
-            wallet_address text,
-            eligibility_type text
-          )
+          values ${values.join(",")}
           on conflict (wallet_address)
           do update set
             eligibility_type = excluded.eligibility_type,
             imported_at = now(),
-            updated_at = now()
-        `;
+            updated_at = now()`,
+          parameters,
+        );
       }
 
+      progress.stage = "stats";
       return {
         preview,
         saved: entriesToWrite.length,
@@ -274,12 +275,25 @@ export async function upsertCheckerWallets(
       };
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown database error";
-    console.error("Checker wallet bulk import failed.", message);
+    const databaseCode = typeof error === "object" && error !== null && "code" in error
+      ? String(error.code).slice(0, 32)
+      : "UNKNOWN";
+    console.error("Checker wallet bulk import failed.", {
+      stage: progress.stage,
+      batch: progress.failedBatch || undefined,
+      databaseCode,
+    });
+    const stageLabel = progress.stage === "write"
+      ? "saving the wallet batch"
+      : progress.stage === "inspect"
+        ? "checking existing wallets"
+        : progress.stage === "stats"
+          ? "refreshing wallet totals"
+          : "starting the database transaction";
     throw new HttpError(
       503,
-      "The wallet import could not be saved. No partial changes were kept. Please try again.",
-      "CHECKER_IMPORT_UNAVAILABLE",
+      `The import failed while ${stageLabel}. No partial changes were kept. Please try again.`,
+      `CHECKER_IMPORT_${progress.stage.toUpperCase()}_FAILED`,
     );
   }
 }
