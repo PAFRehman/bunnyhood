@@ -9,7 +9,11 @@ import {
 } from "./import";
 import { ensureCheckerSchema } from "./schema";
 
-export type { CheckerEligibility, CheckerImport, CheckerImportDraft } from "./import";
+export type {
+  CheckerEligibility,
+  CheckerImport,
+  CheckerImportDraft,
+} from "./import";
 
 type CheckerWalletRow = {
   wallet_address: string;
@@ -22,14 +26,19 @@ const MAX_IMPORT_WALLETS = 10_000;
 const WRITE_BATCH_SIZE = 250;
 const EVM_WALLET = /^0x[0-9a-f]{40}$/;
 
-type CheckerImportStage = "start" | "inspect" | "write" | "stats";
+type CheckerImportStage =
+  | "start"
+  | "inspect"
+  | "write"
+  | "stats";
 
-export type CheckerImportPreview = Omit<CheckerImportDraft, "entries"> & {
-  alreadyExists: number;
-  unchanged: number;
-  statusChanges: number;
-  newWallets: number;
-};
+export type CheckerImportPreview =
+  Omit<CheckerImportDraft, "entries"> & {
+    alreadyExists: number;
+    unchanged: number;
+    statusChanges: number;
+    newWallets: number;
+  };
 
 export function normalizeCheckerWallet(value: string) {
   return value.trim().toLowerCase();
@@ -53,7 +62,10 @@ export function parseCheckerImport(
   gtdValue: string,
   fcfsValue: string,
 ) {
-  const draft = parseCheckerImportDraft(gtdValue, fcfsValue);
+  const draft = parseCheckerImportDraft(
+    gtdValue,
+    fcfsValue,
+  );
 
   if (!draft.entries.length) {
     throw new HttpError(
@@ -78,14 +90,32 @@ async function inspectCheckerImportWithSql(
   sql: SpinDb,
   draft: CheckerImportDraft,
 ) {
-  const existing = new Map<string, CheckerEligibility>();
+  const existing =
+    new Map<string, CheckerEligibility>();
 
-  for (let offset = 0; offset < draft.entries.length; offset += 500) {
-    const batch = draft.entries.slice(offset, offset + 500);
-    const parameters = batch.map((entry) => entry.walletAddress);
-    const placeholders = parameters.map((_, index) => `$${index + 1}`).join(",");
+  for (
+    let offset = 0;
+    offset < draft.entries.length;
+    offset += 500
+  ) {
+    const batch = draft.entries.slice(
+      offset,
+      offset + 500,
+    );
+
+    const parameters = batch.map(
+      (entry) => entry.walletAddress,
+    );
+
+    const placeholders = parameters
+      .map((_, index) => `$${index + 1}`)
+      .join(",");
+
     const rows = await sql.unsafe<
-      Pick<CheckerWalletRow, "wallet_address" | "eligibility_type">[]
+      Pick<
+        CheckerWalletRow,
+        "wallet_address" | "eligibility_type"
+      >[]
     >(
       `select wallet_address, eligibility_type
        from checker_wallets
@@ -93,17 +123,34 @@ async function inspectCheckerImportWithSql(
       parameters,
     );
 
-    for (const row of rows) existing.set(row.wallet_address, row.eligibility_type);
+    for (const row of rows) {
+      existing.set(
+        row.wallet_address,
+        row.eligibility_type,
+      );
+    }
   }
 
-  const entriesToWrite = draft.entries.filter((entry) => (
-    existing.get(entry.walletAddress) !== entry.eligibilityType
-  ));
+  const entriesToWrite = draft.entries.filter(
+    (entry) =>
+      existing.get(entry.walletAddress) !==
+      entry.eligibilityType,
+  );
+
   const alreadyExists = existing.size;
-  const statusChanges = draft.entries.filter((entry) => {
-    const current = existing.get(entry.walletAddress);
-    return current !== undefined && current !== entry.eligibilityType;
-  }).length;
+
+  const statusChanges = draft.entries.filter(
+    (entry) => {
+      const current = existing.get(
+        entry.walletAddress,
+      );
+
+      return (
+        current !== undefined &&
+        current !== entry.eligibilityType
+      );
+    },
+  ).length;
 
   const preview: CheckerImportPreview = {
     gtd: draft.gtd,
@@ -116,17 +163,27 @@ async function inspectCheckerImportWithSql(
     alreadyExists,
     unchanged: alreadyExists - statusChanges,
     statusChanges,
-    newWallets: draft.validUnique - alreadyExists,
+    newWallets:
+      draft.validUnique - alreadyExists,
   };
 
-  return { preview, entriesToWrite };
+  return {
+    preview,
+    entriesToWrite,
+  };
 }
 
 export async function previewCheckerWallets(
   draft: CheckerImportDraft,
 ) {
   await ensureCheckerSchema();
-  return (await inspectCheckerImportWithSql(getDb(), draft)).preview;
+
+  return (
+    await inspectCheckerImportWithSql(
+      getDb(),
+      draft,
+    )
+  ).preview;
 }
 
 async function checkerStatsWithSql(sql: SpinDb) {
@@ -146,11 +203,13 @@ async function checkerStatsWithSql(sql: SpinDb) {
     from checker_wallets
   `;
 
-  return rows[0] ?? {
-    total: 0,
-    gtd: 0,
-    fcfs: 0,
-  };
+  return (
+    rows[0] ?? {
+      total: 0,
+      gtd: 0,
+      fcfs: 0,
+    }
+  );
 }
 
 export async function getCheckerStats() {
@@ -161,12 +220,16 @@ export async function getCheckerStats() {
 export async function findCheckerEligibility(
   walletValue: string,
 ) {
-  const wallet = requireCheckerWallet(walletValue);
+  const wallet =
+    requireCheckerWallet(walletValue);
 
   await ensureCheckerSchema();
 
   const rows = await getDb()<
-    Pick<CheckerWalletRow, "eligibility_type">[]
+    Pick<
+      CheckerWalletRow,
+      "eligibility_type"
+    >[]
   >`
     select eligibility_type
     from checker_wallets
@@ -194,27 +257,32 @@ export async function listCheckerWallets(
 
   const pattern = `%${trimmed}%`;
 
-  const rows = await getDb()<CheckerWalletRow[]>`
-    select
-      wallet_address,
-      eligibility_type,
-      imported_at,
-      updated_at
-    from checker_wallets
-    where
-      ${trimmed} = ''
-      or wallet_address like ${pattern}
-    order by
-      updated_at desc,
-      wallet_address asc
-    limit 500
-  `;
+  const rows =
+    await getDb()<CheckerWalletRow[]>`
+      select
+        wallet_address,
+        eligibility_type,
+        imported_at,
+        updated_at
+      from checker_wallets
+      where
+        ${trimmed} = ''
+        or wallet_address like ${pattern}
+      order by
+        updated_at desc,
+        wallet_address asc
+      limit 500
+    `;
 
   return rows.map((row) => ({
     walletAddress: row.wallet_address,
     eligibilityType: row.eligibility_type,
-    importedAt: new Date(row.imported_at).toISOString(),
-    updatedAt: new Date(row.updated_at).toISOString(),
+    importedAt: new Date(
+      row.imported_at,
+    ).toISOString(),
+    updatedAt: new Date(
+      row.updated_at,
+    ).toISOString(),
   }));
 }
 
@@ -223,7 +291,10 @@ export async function upsertCheckerWallets(
 ) {
   await ensureCheckerSchema();
 
-  const progress: { stage: CheckerImportStage; failedBatch: number } = {
+  const progress: {
+    stage: CheckerImportStage;
+    failedBatch: number;
+  } = {
     stage: "start",
     failedBatch: 0,
   };
@@ -231,7 +302,12 @@ export async function upsertCheckerWallets(
   try {
     return await inTransaction(async (sql) => {
       progress.stage = "inspect";
-      const { preview, entriesToWrite } = await inspectCheckerImportWithSql(sql, draft);
+
+      const { preview, entriesToWrite } =
+        await inspectCheckerImportWithSql(
+          sql,
+          draft,
+        );
 
       for (
         let offset = 0;
@@ -239,17 +315,31 @@ export async function upsertCheckerWallets(
         offset += WRITE_BATCH_SIZE
       ) {
         progress.stage = "write";
-        progress.failedBatch = Math.floor(offset / WRITE_BATCH_SIZE) + 1;
-        const batch = entriesToWrite.slice(offset, offset + WRITE_BATCH_SIZE);
-        const parameters: string[] = [];
-        const values = batch.map((entry, index) => {
-          parameters.push(entry.walletAddress, entry.eligibilityType);
-          const parameter = index * 2;
-          return `($${parameter + 1}, $${parameter + 2}, now(), now())`;
-        });
+        progress.failedBatch =
+          Math.floor(
+            offset / WRITE_BATCH_SIZE,
+          ) + 1;
 
-        // Keep the SQL deliberately simple for Neon/PgBouncer. Small parameterized
-        // VALUES batches avoid JSON record expansion and oversized statements.
+        const batch = entriesToWrite.slice(
+          offset,
+          offset + WRITE_BATCH_SIZE,
+        );
+
+        const parameters: string[] = [];
+
+        const values = batch.map(
+          (entry, index) => {
+            parameters.push(
+              entry.walletAddress,
+              entry.eligibilityType,
+            );
+
+            const parameter = index * 2;
+
+            return `($${parameter + 1}, $${parameter + 2}, now(), now())`;
+          },
+        );
+
         await sql.unsafe(
           `insert into checker_wallets (
             wallet_address,
@@ -258,9 +348,11 @@ export async function upsertCheckerWallets(
             updated_at
           )
           values ${values.join(",")}
-          on conflict (wallet_address)
+          on conflict (
+            wallet_address,
+            eligibility_type
+          )
           do update set
-            eligibility_type = excluded.eligibility_type,
             imported_at = now(),
             updated_at = now()`,
           parameters,
@@ -268,28 +360,41 @@ export async function upsertCheckerWallets(
       }
 
       progress.stage = "stats";
+
       return {
         preview,
         saved: entriesToWrite.length,
-        stats: await checkerStatsWithSql(sql),
+        stats:
+          await checkerStatsWithSql(sql),
       };
     });
   } catch (error) {
-    const databaseCode = typeof error === "object" && error !== null && "code" in error
-      ? String(error.code).slice(0, 32)
-      : "UNKNOWN";
-    console.error("Checker wallet bulk import failed.", {
-      stage: progress.stage,
-      batch: progress.failedBatch || undefined,
-      databaseCode,
-    });
-    const stageLabel = progress.stage === "write"
-      ? "saving the wallet batch"
-      : progress.stage === "inspect"
-        ? "checking existing wallets"
-        : progress.stage === "stats"
-          ? "refreshing wallet totals"
-          : "starting the database transaction";
+    const databaseCode =
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error
+        ? String(error.code).slice(0, 32)
+        : "UNKNOWN";
+
+    console.error(
+      "Checker wallet bulk import failed.",
+      {
+        stage: progress.stage,
+        batch:
+          progress.failedBatch || undefined,
+        databaseCode,
+      },
+    );
+
+    const stageLabel =
+      progress.stage === "write"
+        ? "saving the wallet batch"
+        : progress.stage === "inspect"
+          ? "checking existing wallets"
+          : progress.stage === "stats"
+            ? "refreshing wallet totals"
+            : "starting the database transaction";
+
     throw new HttpError(
       503,
       `The import failed while ${stageLabel}. No partial changes were kept. Please try again.`,
@@ -301,12 +406,16 @@ export async function upsertCheckerWallets(
 export async function deleteCheckerWallet(
   walletValue: string,
 ) {
-  const wallet = requireCheckerWallet(walletValue);
+  const wallet =
+    requireCheckerWallet(walletValue);
 
   await ensureCheckerSchema();
 
   const rows = await getDb()<
-    Pick<CheckerWalletRow, "wallet_address">[]
+    Pick<
+      CheckerWalletRow,
+      "wallet_address"
+    >[]
   >`
     delete from checker_wallets
     where wallet_address = ${wallet}
