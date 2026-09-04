@@ -28,6 +28,14 @@
 .checker-admin-import-grid i { color:#66705f; font-size:7px; font-style:normal; letter-spacing:.1em; }
 .checker-admin-import-grid textarea { width:100%; min-height:210px; resize:vertical; border:1px solid rgba(255,255,255,.13); border-radius:16px; outline:0; background:#10140e; padding:20px; color:#dfe3da; font:10px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace; transition:border-color 160ms ease; }
 .checker-admin-import-grid textarea:focus { border-color:rgba(202,255,0,.5); }
+.checker-admin-preview { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:15px; }
+.checker-admin-preview article { display:grid; min-height:112px; align-content:center; gap:7px; border:1px solid rgba(255,255,255,.11); border-radius:14px; background:#10140e; padding:17px; }
+.checker-admin-preview article.new { border-color:rgba(202,255,0,.38); background:linear-gradient(145deg,rgba(202,255,0,.09),#10140e 72%); }
+.checker-admin-preview span { color:#6f786a; font-size:7px; font-weight:950; letter-spacing:.14em; }
+.checker-admin-preview strong { color:#dfe3da; font-size:30px; letter-spacing:-.045em; }
+.checker-admin-preview article.new strong { color:var(--lime); }
+.checker-admin-preview small { overflow:hidden; color:#697163; font-size:7px; line-height:1.45; text-overflow:ellipsis; }
+.checker-admin-import-note { margin:12px 5px 0; color:#8b9385; font-size:8px; line-height:1.6; }
 .checker-admin-import>button { display:flex; width:min(100%,430px); min-height:62px; align-items:center; justify-content:space-between; margin:16px 0 0 auto; border:0; border-radius:999px; background:var(--lime); padding:0 19px 0 25px; color:var(--ink); cursor:pointer; font-size:9px; font-weight:950; letter-spacing:.12em; }
 .checker-admin-import>button:disabled { cursor:not-allowed; opacity:.38; }
 .checker-admin-import>button b { display:grid; width:32px; height:32px; place-items:center; border-radius:50%; background:var(--ink); color:var(--lime); font-size:15px; }
@@ -50,5 +58,6 @@
 .checker-admin-loading,.checker-admin-empty { padding:75px; color:#778073; font-size:8px; font-weight:950; letter-spacing:.17em; text-align:center; }
 .checker-admin-toast { position:fixed; z-index:20; right:20px; bottom:20px; display:flex; max-width:470px; align-items:center; gap:20px; border:1px solid rgba(202,255,0,.35); border-radius:13px; background:#151b11; padding:17px; color:#aab1a4; font-size:10px; box-shadow:0 20px 60px rgba(0,0,0,.45); }
 .checker-admin-toast button { border:0; background:transparent; color:#7c8576; cursor:pointer; font-size:20px; }
+@media (max-width:1050px) { .checker-admin-preview { grid-template-columns:1fr 1fr; } }
 @media (max-width:900px) { .checker-admin-hero,.checker-admin-import-head,.checker-admin-records-head { grid-template-columns:1fr; } .checker-admin-stats { grid-template-columns:1fr; } }
-@media (max-width:700px) { .checker-admin-nav { align-items:flex-start; flex-direction:column; padding-top:20px; padding-bottom:20px; } .checker-admin-import-grid { grid-template-columns:1fr; } .checker-admin-hero h1 { font-size:65px; } .checker-admin-tools { align-items:stretch; flex-direction:column; } }
+@media (max-width:700px) { .checker-admin-nav { align-items:flex-start; flex-direction:column; padding-top:20px; padding-bottom:20px; } .checker-admin-import-grid,.checker-admin-preview { grid-template-columns:1fr; } .checker-admin-hero h1 { font-size:65px; } .checker-admin-tools { align-items:stretch; flex-direction:column; } }

@@ -4,6 +4,7 @@ import { getDb, inTransaction } from "@/lib/spin/db";
 import { HttpError } from "@/lib/spin/http";
 
 const MIGRATION_ID = "013_wallet_eligibility_checker";
+const RESET_MIGRATION_ID = "018_checker_wallet_reset";
 
 const statements = [
   `create table if not exists spin_rate_limits (
@@ -46,16 +47,42 @@ async function migrate() {
       applied_at timestamptz not null default now()
     )
   `;
-  if (await schemaIsHealthy(sql)) return;
+  if (!(await schemaIsHealthy(sql))) {
+    await inTransaction(async (transaction) => {
+      await transaction`select pg_advisory_xact_lock(hashtext('bunny-hood-checker-schema'))`;
+      if (await schemaIsHealthy(transaction)) return;
+      for (const statement of statements) await transaction.unsafe(statement);
+      await transaction`
+        insert into spin_schema_migrations (migration_id)
+        values (${MIGRATION_ID})
+        on conflict (migration_id) do nothing
+      `;
+    });
+  }
+
+  const resetApplied = await sql<{ applied: boolean }[]>`
+    select exists(
+      select 1 from spin_schema_migrations
+      where migration_id = ${RESET_MIGRATION_ID}
+    ) as applied
+  `;
+  if (resetApplied[0]?.applied) return;
 
   await inTransaction(async (transaction) => {
     await transaction`select pg_advisory_xact_lock(hashtext('bunny-hood-checker-schema'))`;
-    if (await schemaIsHealthy(transaction)) return;
-    for (const statement of statements) await transaction.unsafe(statement);
+    const alreadyApplied = await transaction<{ applied: boolean }[]>`
+      select exists(
+        select 1 from spin_schema_migrations
+        where migration_id = ${RESET_MIGRATION_ID}
+      ) as applied
+    `;
+    if (alreadyApplied[0]?.applied) return;
+
+    // This one-time, narrowly scoped reset was requested before the next list import.
+    await transaction`delete from checker_wallets`;
     await transaction`
       insert into spin_schema_migrations (migration_id)
-      values (${MIGRATION_ID})
-      on conflict (migration_id) do nothing
+      values (${RESET_MIGRATION_ID})
     `;
   });
 }
