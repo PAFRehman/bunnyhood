@@ -348,11 +348,9 @@ export async function upsertCheckerWallets(
             updated_at
           )
           values ${values.join(",")}
-          on conflict (
-            wallet_address,
-            eligibility_type
-          )
+          on conflict (wallet_address)
           do update set
+            eligibility_type = excluded.eligibility_type,
             imported_at = now(),
             updated_at = now()`,
           parameters,
