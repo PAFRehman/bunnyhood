@@ -19,6 +19,7 @@ type SettingsRow = {
   max_entries: number;
   engagement_post_url: string;
   post_text: string;
+  mint_opens_at: Date | string | null;
   updated_at: Date | string;
 };
 
@@ -33,6 +34,7 @@ export type LastDanceSettings = {
   maxEntries: number;
   engagementPostUrl: string;
   postText: string;
+  mintOpensAt: string | null;
   updatedAt: string;
 };
 
@@ -54,6 +56,7 @@ function mapSettings(row: SettingsRow): LastDanceSettings {
     maxEntries: Number(row.max_entries),
     engagementPostUrl: row.engagement_post_url,
     postText: row.post_text,
+    mintOpensAt: row.mint_opens_at ? new Date(row.mint_opens_at).toISOString() : null,
     updatedAt: new Date(row.updated_at).toISOString(),
   };
 }
@@ -61,7 +64,7 @@ function mapSettings(row: SettingsRow): LastDanceSettings {
 export async function getLastDanceSettings(sql: SpinDb = getDb()) {
   await ensureLastDanceSchema();
   const rows = await sql<SettingsRow[]>`
-    select public_enabled, max_entries, engagement_post_url, post_text, updated_at
+    select public_enabled, max_entries, engagement_post_url, post_text, mint_opens_at, updated_at
     from last_dance_settings where id = 1
   `;
   if (!rows[0]) throw new Error("Last Dance settings are missing.");
@@ -118,11 +121,18 @@ export async function getLastDanceState(user: SpinUser | null) {
     publicEnabled: settings.publicEnabled,
     engagementPostUrl: settings.engagementPostUrl,
     postText: settings.postText,
+    mintOpensAt: settings.mintOpensAt,
+  };
+  const capacity = {
+    claimed: entriesCount,
+    total: settings.maxEntries,
+    remaining: Math.max(0, settings.maxEntries - entriesCount),
   };
   if (!user) {
     return {
       authenticated: false as const,
       settings: publicSettings,
+      capacity,
       closed: entriesCount >= settings.maxEntries,
     };
   }
@@ -144,6 +154,7 @@ export async function getLastDanceState(user: SpinUser | null) {
   return {
     authenticated: true as const,
     settings: publicSettings,
+    capacity,
     closed: entriesCount >= settings.maxEntries,
     user: {
       xUsername: user.xUsername,
@@ -296,7 +307,7 @@ export async function enterLastDance(user: SpinUser, rawWallet: string, isAdmin:
 
   return inTransaction(async (transaction) => {
     const settingsRows = await transaction<SettingsRow[]>`
-      select public_enabled, max_entries, engagement_post_url, post_text, updated_at
+      select public_enabled, max_entries, engagement_post_url, post_text, mint_opens_at, updated_at
       from last_dance_settings where id = 1 for update
     `;
     const settings = settingsRows[0];
@@ -398,6 +409,7 @@ export async function updateLastDanceSettings(input: {
   maxEntries: number;
   engagementPostUrl: string;
   postText: string;
+  mintOpensAt: string | null;
 }) {
   await ensureLastDanceSchema();
   if (!Number.isInteger(input.maxEntries) || input.maxEntries < 1 || input.maxEntries > 100_000) {
@@ -414,6 +426,11 @@ export async function updateLastDanceSettings(input: {
   if (!postText || postText.length > 240) {
     throw new HttpError(400, "Post text must contain 1–240 characters.", "BAD_POST_TEXT");
   }
+  const mintTimestamp = input.mintOpensAt ? Date.parse(input.mintOpensAt) : Number.NaN;
+  if (input.mintOpensAt && !Number.isFinite(mintTimestamp)) {
+    throw new HttpError(400, "Enter a valid mint opening time.", "BAD_MINT_TIME");
+  }
+  const mintOpensAt = input.mintOpensAt ? new Date(mintTimestamp).toISOString() : null;
   const sql = getDb();
   const rows = await sql<SettingsRow[]>`
     update last_dance_settings set
@@ -421,9 +438,41 @@ export async function updateLastDanceSettings(input: {
       max_entries = ${input.maxEntries},
       engagement_post_url = ${engagementPostUrl},
       post_text = ${postText},
+      mint_opens_at = ${mintOpensAt}::timestamptz,
       updated_at = now()
     where id = 1
-    returning public_enabled, max_entries, engagement_post_url, post_text, updated_at
+    returning public_enabled, max_entries, engagement_post_url, post_text, mint_opens_at, updated_at
   `;
   return mapSettings(rows[0]);
+}
+
+export async function getLastDancePublicPass(rawEntryId: string) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawEntryId)) {
+    return null;
+  }
+  await ensureLastDanceSchema();
+  const sql = getDb();
+  const rows = await sql<{
+    id: string;
+    x_username: string;
+    wallet_address: string;
+    entered_at: Date | string;
+    mint_opens_at: Date | string | null;
+  }[]>`
+    select entries.id, entries.x_username, entries.wallet_address, entries.entered_at,
+      settings.mint_opens_at
+    from last_dance_entries entries
+    cross join last_dance_settings settings
+    where entries.id = ${rawEntryId}::uuid and settings.id = 1
+    limit 1
+  `;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    xUsername: row.x_username,
+    maskedWallet: `${row.wallet_address.slice(0, 8)}…${row.wallet_address.slice(-6)}`,
+    enteredAt: new Date(row.entered_at).toISOString(),
+    mintOpensAt: row.mint_opens_at ? new Date(row.mint_opens_at).toISOString() : null,
+  };
 }

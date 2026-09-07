@@ -10,6 +10,7 @@ type AdminData = {
     maxEntries: number;
     engagementPostUrl: string;
     postText: string;
+    mintOpensAt: string | null;
     updatedAt: string;
   };
   entriesCount: number;
@@ -35,6 +36,17 @@ async function adminRequest<T>(url: string, init?: RequestInit) {
   return data;
 }
 
+function shortWallet(wallet: string) {
+  return `${wallet.slice(0, 10)}…${wallet.slice(-8)}`;
+}
+
+function toLocalDateTime(value: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
 export function LastDanceAdminApp() {
   const router = useRouter();
   const [data, setData] = useState<AdminData | null>(null);
@@ -42,6 +54,7 @@ export function LastDanceAdminApp() {
   const [maxEntries, setMaxEntries] = useState(100);
   const [engagementPostUrl, setEngagementPostUrl] = useState("");
   const [postText, setPostText] = useState("");
+  const [mintOpensAt, setMintOpensAt] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -55,6 +68,7 @@ export function LastDanceAdminApp() {
         setMaxEntries(next.settings.maxEntries);
         setEngagementPostUrl(next.settings.engagementPostUrl);
         setPostText(next.settings.postText);
+        setMintOpensAt(toLocalDateTime(next.settings.mintOpensAt));
       }
     } catch (error) {
       if ((error as Error & { status?: number }).status === 401) return login();
@@ -66,8 +80,11 @@ export function LastDanceAdminApp() {
     const initial = window.setTimeout(() => void load(), 0);
     const refresh = window.setInterval(() => {
       if (document.visibilityState === "visible") void load(false);
-    }, 15_000);
-    return () => { window.clearTimeout(initial); window.clearInterval(refresh); };
+    }, 5_000);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(refresh);
+    };
   }, [load]);
 
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -78,7 +95,13 @@ export function LastDanceAdminApp() {
       await adminRequest("/api/admin/last-dance", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ publicEnabled, maxEntries, engagementPostUrl, postText }),
+        body: JSON.stringify({
+          publicEnabled,
+          maxEntries,
+          engagementPostUrl,
+          postText,
+          mintOpensAt: mintOpensAt ? new Date(mintOpensAt).toISOString() : null,
+        }),
       });
       await load();
       setMessage("Last Dance settings saved.");
@@ -96,45 +119,128 @@ export function LastDanceAdminApp() {
     setMessage(`${data.entries.length} claimed wallets copied.`);
   }
 
+  const progress = data && data.settings.maxEntries > 0
+    ? Math.min(100, (data.entriesCount / data.settings.maxEntries) * 100)
+    : 0;
+
   return (
     <main className="ld-admin">
-      <header className="lda-nav">
-        <Link href="/">BH / ADMIN</Link>
-        <nav><Link href="/admin/spin">SPIN ADMIN</Link><Link href="/TheLastDance">OPEN THE LAST DANCE ↗</Link></nav>
-      </header>
-
-      <section className="lda-hero">
-        <div><p>PRIVATE CONTROL ROOM</p><h1>THE LAST<br /><em>DANCE.</em></h1></div>
-        <p>Control public access, the hard entry cap, both X task sources, and inspect every wallet that passed the Robinhood Chain checks.</p>
-      </section>
-
-      <section className="lda-stats">
-        <article><span>ENTRIES LOCKED</span><strong>{data?.entriesCount ?? "—"}</strong><small>Unique X accounts + wallets</small></article>
-        <article><span>SPOTS REMAINING</span><strong>{data?.remaining ?? "—"}</strong><small>Closes atomically at the cap</small></article>
-        <article className={publicEnabled ? "live" : "private"}><span>PUBLIC ACCESS</span><strong>{publicEnabled ? "LIVE" : "PRIVATE"}</strong><small>{publicEnabled ? "Users can enter now" : "Admin preview only"}</small></article>
-      </section>
-
-      <form className="lda-settings" onSubmit={save}>
-        <div className="lda-section-head"><div><span>ACCESS + CAMPAIGN</span><h2>SET THE RULES.</h2></div><p>The page starts private. Turn public access on only when the official engagement post and campaign copy are ready.</p></div>
-        <label className="lda-toggle"><span><strong>PUBLIC ACCESS</strong><small>When off, only an authenticated BunnyHood admin can open the page.</small></span><input type="checkbox" checked={publicEnabled} onChange={(event) => setPublicEnabled(event.target.checked)} /><i /></label>
-        <div className="lda-fields">
-          <label><span>MAX ENTRIES</span><input type="number" min="1" max="100000" value={maxEntries} onChange={(event) => setMaxEntries(Number(event.target.value))} /></label>
-          <label><span>OFFICIAL ENGAGEMENT POST URL</span><input type="url" value={engagementPostUrl} onChange={(event) => setEngagementPostUrl(event.target.value)} placeholder="https://x.com/BunnysHood/status/..." /></label>
+      <aside className="lda-sidebar">
+        <Link className="lda-brand" href="/"><span>BH</span><b>BUNNY HOOD</b></Link>
+        <div className="lda-side-title"><small>PRIVATE TOOL</small><strong>LAST DANCE<br />STUDIO</strong></div>
+        <nav>
+          <a className="active" href="#overview"><i>01</i><span>Overview</span></a>
+          <a href="#campaign"><i>02</i><span>Campaign setup</span></a>
+          <a href="#entries"><i>03</i><span>Entry ledger</span></a>
+        </nav>
+        <div className={`lda-access-card ${publicEnabled ? "live" : "private"}`}>
+          <i />
+          <span>PUBLIC PAGE</span>
+          <strong>{publicEnabled ? "OPEN" : "PRIVATE"}</strong>
+          <small>{publicEnabled ? "Accepting eligible entries" : "Visible to admins only"}</small>
         </div>
-        <label className="lda-copy"><span>CREATE-POST DEFAULT TEXT <b>{postText.length} / 240</b></span><textarea value={postText} onChange={(event) => setPostText(event.target.value.slice(0, 240))} rows={5} placeholder="Write the default Last Dance post…" /><small>@BunnysHood is always required during verification and is appended by the public composer if missing here.</small></label>
-        <button type="submit" disabled={busy}>{busy ? "SAVING…" : "SAVE LAST DANCE SETTINGS"}<b>↗</b></button>
-      </form>
+        <div className="lda-side-links"><Link href="/admin/spin">SPIN ADMIN</Link><Link href="/TheLastDance">VIEW EXPERIENCE ↗</Link></div>
+      </aside>
 
-      <section className="lda-ledger">
-        <div className="lda-section-head"><div><span>VERIFIED ENTRY LEDGER</span><h2>WHO MADE IT.</h2></div><button type="button" onClick={copyWallets}>COPY ALL WALLETS</button></div>
-        <div className="lda-table">
-          <table><thead><tr><th>#</th><th>X ACCOUNT</th><th>WALLET</th><th>NFTS FOUND</th><th>TRANSACTIONS</th><th>ENTERED</th></tr></thead>
-            <tbody>{data?.entries.map((entry, index) => <tr key={entry.id}><td>{data.entriesCount - index}</td><td>@{entry.xUsername}</td><td><code>{entry.walletAddress}</code></td><td>{entry.nftCount}</td><td>{entry.transactionCount}</td><td>{new Date(entry.enteredAt).toLocaleString()}</td></tr>)}</tbody></table>
-          {!data?.entries.length && <p>NO VERIFIED ENTRIES YET.</p>}
-        </div>
+      <section className="lda-workspace">
+        <header className="lda-topbar">
+          <div><i /><span>SECURE ADMIN SESSION</span></div>
+          <p>Robinhood mainnet · Chain 4663</p>
+        </header>
+
+        <section className="lda-overview" id="overview">
+          <div className="lda-title">
+            <p>CAMPAIGN COMMAND CENTER</p>
+            <h1>RUN THE<br /><em>FINAL FLOOR.</em></h1>
+          </div>
+          <div className="lda-live-capacity">
+            <div><span>LIVE CAPACITY</span><b>AUTO REFRESH · 5S</b></div>
+            <strong>{data?.entriesCount ?? "—"}<small> / {data?.settings.maxEntries ?? maxEntries}</small></strong>
+            <p>verified spots claimed</p>
+            <div className="lda-meter"><i style={{ width: `${progress}%` }} /></div>
+          </div>
+        </section>
+
+        <section className="lda-instruments">
+          <article className="coral"><span>01 / CLAIMED</span><strong>{data?.entriesCount ?? "—"}</strong><p>Unique X identities and wallets</p><i>↗</i></article>
+          <article className="violet"><span>02 / REMAINING</span><strong>{data?.remaining ?? "—"}</strong><p>Until the atomic cap closes</p><i>↘</i></article>
+          <article className="cyan"><span>03 / VERIFICATION</span><strong>ANY</strong><p>NFT + any mainnet transaction</p><i>✓</i></article>
+        </section>
+
+        <form className="lda-console" id="campaign" onSubmit={save}>
+          <header className="lda-console-head">
+            <div><span>CAMPAIGN SETUP</span><h2>PROGRAM THE NIGHT.</h2></div>
+            <p>Configure the public gate, entry supply, official engagement destination, and the default X post from this private panel.</p>
+          </header>
+
+          <label className="lda-toggle">
+            <span><strong>PUBLIC ACCESS</strong><small>When off, only an authenticated BunnyHood admin can preview The Last Dance.</small></span>
+            <input type="checkbox" checked={publicEnabled} onChange={(event) => setPublicEnabled(event.target.checked)} />
+            <i><b /></i>
+          </label>
+
+          <div className="lda-field-grid">
+            <label className="lda-cap-field">
+              <span>MAXIMUM ENTRIES <b>HARD CAP</b></span>
+              <div><input type="number" min="1" max="100000" value={maxEntries} onChange={(event) => setMaxEntries(Number(event.target.value))} /><small>SPOTS</small></div>
+              <p>New entries stop atomically when this number is reached.</p>
+            </label>
+            <label>
+              <span>OFFICIAL ENGAGEMENT POST</span>
+              <input type="url" value={engagementPostUrl} onChange={(event) => setEngagementPostUrl(event.target.value)} placeholder="https://x.com/BunnysHood/status/..." />
+              <p>A complete public X post URL is required before you open access.</p>
+            </label>
+            <label className="lda-time-field">
+              <span>OPENSEA MINT OPENS <b>YOUR LOCAL TIME</b></span>
+              <input type="datetime-local" value={mintOpensAt} onChange={(event) => setMintOpensAt(event.target.value)} />
+              <p>This powers the live countdown on every confirmed GTD pass. Leave empty until the mint time is final.</p>
+            </label>
+          </div>
+
+          <label className="lda-copy">
+            <span>DEFAULT CREATE-POST TEXT <b>{postText.length} / 240</b></span>
+            <textarea value={postText} onChange={(event) => setPostText(event.target.value.slice(0, 240))} rows={6} placeholder="Write the default Last Dance post…" />
+            <p>@BunnysHood is required during verification and is appended by the public composer when missing.</p>
+          </label>
+
+          <div className="lda-console-actions">
+            <span>{data?.settings.updatedAt ? `LAST SAVED ${new Date(data.settings.updatedAt).toLocaleString()}` : "LOADING SAVED SETTINGS…"}</span>
+            <button type="submit" disabled={busy}><span>{busy ? "SAVING CONTROL STATE…" : "SAVE CAMPAIGN STATE"}</span><b>↗</b></button>
+          </div>
+        </form>
+
+        <section className="lda-ledger" id="entries">
+          <header className="lda-ledger-head">
+            <div><span>VERIFIED ENTRY LEDGER</span><h2>EVERYONE<br />ON THE FLOOR.</h2></div>
+            <div className="lda-ledger-actions">
+              <button type="button" onClick={copyWallets}>COPY SHOWN WALLETS</button>
+              <a href="/api/admin/last-dance/export">DOWNLOAD FULL DATA · CSV <b>↓</b></a>
+            </div>
+          </header>
+
+          <div className="lda-table-shell">
+            <div className="lda-table-meta"><span>{data?.entriesCount ?? 0} VERIFIED ENTRIES</span><small>Full X IDs, post URLs, timestamps, and proof counts are included in the protected CSV.</small></div>
+            <div className="lda-table-scroll">
+              <table>
+                <thead><tr><th>POSITION</th><th>X IDENTITY</th><th>WALLET</th><th>NFTS</th><th>TXS</th><th>ENTERED</th></tr></thead>
+                <tbody>{data?.entries.map((entry, index) => (
+                  <tr key={entry.id}>
+                    <td><span className="lda-position">{String(data.entriesCount - index).padStart(3, "0")}</span></td>
+                    <td><strong>@{entry.xUsername}</strong></td>
+                    <td><code title={entry.walletAddress}>{shortWallet(entry.walletAddress)}</code></td>
+                    <td><b>{entry.nftCount}</b></td>
+                    <td><b>{entry.transactionCount}</b></td>
+                    <td>{new Date(entry.enteredAt).toLocaleString()}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+              {!data?.entries.length && <div className="lda-empty"><i /><strong>THE FLOOR IS EMPTY</strong><span>Verified entries will arrive here in real time.</span></div>}
+            </div>
+          </div>
+        </section>
       </section>
 
-      {message && <div className="lda-toast"><span>{message}</span><button type="button" onClick={() => setMessage("")}>×</button></div>}
+      {message && <div className="lda-toast" role="status"><i /><span>{message}</span><button type="button" onClick={() => setMessage("")}>×</button></div>}
     </main>
   );
 }
