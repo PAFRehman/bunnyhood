@@ -2,11 +2,11 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getLastDancePublicPass } from "@/lib/last-dance/data";
 import { SiteFooter, SiteNav } from "@/app/site-shell";
+import { LAST_DANCE_OPENSEA_URL, lastDanceMintShareLine } from "@/lib/last-dance/mint";
 import { LastDanceMintCountdown } from "../../mint-countdown";
 import { lastDancePassImageAlt, lastDancePassImageSize } from "../../pass-card";
 
 const SITE_URL = "https://www.bunnyhood.xyz";
-const OPENSEA_URL = "https://opensea.io/collection/bunnyhoodxyz";
 type PassPageProps = { params: Promise<{ entryId: string }> };
 
 export async function generateMetadata({ params }: PassPageProps): Promise<Metadata> {
@@ -15,7 +15,7 @@ export async function generateMetadata({ params }: PassPageProps): Promise<Metad
   const pageUrl = new URL(`/TheLastDance/pass/${pass.id}`, SITE_URL);
   const imageUrl = new URL(`/api/last-dance/pass/${pass.id}`, SITE_URL);
   const title = `@${pass.xUsername} secured a Confirmed GTD Spot — Bunny Hood`;
-  const description = "A confirmed GTD spot for The Last Dance on Robinhood Chain. The wallet will be added soon.";
+  const description = "A confirmed GTD spot for The Last Dance on Robinhood Chain, ready for the official BunnyHood OpenSea mint.";
   const image = { url: imageUrl.toString(), width: lastDancePassImageSize.width, height: lastDancePassImageSize.height, alt: lastDancePassImageAlt };
   return {
     metadataBase: new URL(SITE_URL),
@@ -32,7 +32,12 @@ export default async function LastDancePassPage({ params }: PassPageProps) {
   const pass = await getLastDancePublicPass((await params).entryId);
   if (!pass) notFound();
   const shareUrl = `${SITE_URL}/TheLastDance/pass/${pass.id}`;
-  const shareText = encodeURIComponent(`I secured a Confirmed GTD Spot in The Last Dance by @BunnysHood. My wallet will be added soon.\n\n${shareUrl}`);
+  const shareText = encodeURIComponent([
+    "I secured a Confirmed GTD Spot in The Last Dance by @BunnysHood.",
+    lastDanceMintShareLine(pass.mintOpensAt),
+    `My confirmed pass: ${shareUrl}`,
+    `Official mint: ${LAST_DANCE_OPENSEA_URL}`,
+  ].join("\n\n"));
 
   return (
     <main className="last-dance-page">
@@ -44,12 +49,12 @@ export default async function LastDancePassPage({ params }: PassPageProps) {
         <div className="ld-share-copy">
           <p>THE LAST DANCE · ROBINHOOD CHAIN</p>
           <h1>CONFIRMED<br /><em>GTD SPOT.</em></h1>
-          <span>@{pass.xUsername} made the final floor. The receiving wallet is recorded and will be added soon.</span>
+          <span>@{pass.xUsername} made the final floor and secured a confirmed GTD pass for the official BunnyHood mint.</span>
           <LastDanceMintCountdown target={pass.mintOpensAt} />
           <div className="ld-share-actions">
             <a href={`/api/last-dance/pass/${pass.id}?download=1`}>DOWNLOAD PASS <b>↓</b></a>
             <a href={`https://x.com/intent/post?text=${shareText}`} target="_blank" rel="noreferrer">SHARE ON X <b>↗</b></a>
-            <a className="opensea" href={OPENSEA_URL} target="_blank" rel="noreferrer">GO TO OPENSEA MINT <b>↗</b></a>
+            <a className="opensea" href={LAST_DANCE_OPENSEA_URL} target="_blank" rel="noreferrer">GO TO OPENSEA MINT <b>↗</b></a>
           </div>
         </div>
         <div className="ld-share-pass" aria-label={`Confirmed GTD pass for @${pass.xUsername}`}>
@@ -59,7 +64,7 @@ export default async function LastDancePassPage({ params }: PassPageProps) {
           <h2>@{pass.xUsername}</h2>
           <code>{pass.maskedWallet}</code>
           <div className="ld-share-proof"><span>NFT FOUND ✓</span><span>TX FOUND ✓</span><b>GTD</b></div>
-          <small>YOUR WALLET WILL BE ADDED SOON.</small>
+          <small>GTD ACCESS CONFIRMED · READY FOR MINT.</small>
         </div>
       </section>
       <SiteFooter />
