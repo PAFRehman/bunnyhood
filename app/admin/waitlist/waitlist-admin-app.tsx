@@ -122,6 +122,7 @@ export function WaitlistAdminApp() {
         <section className="waitlist-admin-records">
           <div className="waitlist-admin-tools">
             <form onSubmit={submitSearch}><input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Search wallet, X account, referral code, or post URL" /><button>SEARCH</button></form>
+            <a className="waitlist-admin-top50-export" href="/api/admin/waitlist/top-50">DOWNLOAD TOP 50 WALLETS <span>XLSX ↓</span></a>
             <button type="button" onClick={() => void copyWallets()}>COPY SHOWN WALLETS</button>
             <button type="button" onClick={() => void syncSheets()} disabled={busy}>{busy ? "SYNCING…" : "SYNC GOOGLE SHEETS"}</button>
           </div>

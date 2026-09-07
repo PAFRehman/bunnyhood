@@ -90,7 +90,10 @@ const waitlistSession = readFileSync(join(root, "lib/waitlist/session.ts"), "utf
 const waitlistSheets = readFileSync(join(root, "lib/waitlist/sheets.ts"), "utf8");
 const waitlistApp = readFileSync(join(root, "app/waitlist/waitlist-app.tsx"), "utf8");
 const waitlistAdminPage = readFileSync(join(root, "app/admin/waitlist/page.tsx"), "utf8");
+const waitlistAdminApp = readFileSync(join(root, "app/admin/waitlist/waitlist-admin-app.tsx"), "utf8");
 const waitlistAdminRoute = readFileSync(join(root, "app/api/admin/waitlist/route.ts"), "utf8");
+const waitlistTop50Route = readFileSync(join(root, "app/api/admin/waitlist/top-50/route.ts"), "utf8");
+const waitlistTop50Export = readFileSync(join(root, "lib/waitlist/export.ts"), "utf8");
 const waitlistJoinRoute = readFileSync(join(root, "app/api/waitlist/join/route.ts"), "utf8");
 const waitlistJoinPostRoute = readFileSync(join(root, "app/api/waitlist/join-post/route.ts"), "utf8");
 const waitlistBonusRoute = readFileSync(join(root, "app/api/waitlist/bonus-post/route.ts"), "utf8");
@@ -265,6 +268,9 @@ if (/requireSessionUser|getSessionUser|\/auth\/x/.test(`${waitlistData}\n${waitl
 if (!/create table if not exists waitlist_sheet_outbox/.test(migration) || !/queueWaitlistEntrySnapshot/.test(`${waitlistData}\n${waitlistSheets}`) || !/revision = waitlist_sheet_outbox\.revision \+ 1/.test(waitlistSheets)) failures.push("Durable revisioned waitlist Google Sheets sync is missing.");
 if (!/from "next\/server"/.test(`${waitlistJoinRoute}\n${waitlistBonusRoute}`) || !/after\(async \(\) =>/.test(waitlistJoinRoute) || !/after\(async \(\) =>/.test(waitlistBonusRoute)) failures.push("Waitlist Sheets updates are not flushed after the user response.");
 if (!/requireSpinAdmin/.test(waitlistAdminRoute) || !/verifyAdminTicket/.test(waitlistAdminPage) || /admin\/waitlist/.test(waitlistApp)) failures.push("Waitlist admin data is not private or the public page exposes its route.");
+if (!/requireSpinAdmin/.test(waitlistTop50Route) || !/application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet/.test(waitlistTop50Route) || !/href="\/api\/admin\/waitlist\/top-50"/.test(waitlistAdminApp)) failures.push("The protected waitlist Top 50 wallet download is incomplete.");
+if (!/row_number\(\) over/.test(waitlistTop50Export) || !/order by \(entries\.referral_count \+ entries\.bonus_points\) desc/.test(waitlistTop50Export) || !/limit 50/.test(waitlistTop50Export) || !/Wallets Only/.test(waitlistTop50Export) || !/xlsx\.writeBuffer/.test(waitlistTop50Export)) failures.push("The waitlist Top 50 workbook does not mirror the live leaderboard or produce a wallet-only sheet.");
+if (/\b(?:insert\s+into|update\s+waitlist_|delete\s+from|alter\s+table|drop\s+table)\b/i.test(`${waitlistTop50Route}\n${waitlistTop50Export}`)) failures.push("The waitlist Top 50 download is not read-only.");
 if (!/maskWallet/.test(waitlistData) || !/includePrivate \? row\.wallet_address : maskWallet/.test(waitlistData)) failures.push("Public waitlist rankings can expose complete wallets.");
 if (!/create table if not exists checker_wallets/.test(migration) || !/eligibility_type in \('GTD', 'FCFS'\)/.test(migration)) failures.push("The GTD/FCFS wallet checker schema is missing or accepts unknown statuses.");
 if (!/requireCheckerWallet/.test(checkerData) || !/on conflict \(wallet_address\)\s*do update set\s*eligibility_type = excluded\.eligibility_type/.test(checkerData)) failures.push("Checker wallet validation or idempotent bulk import is missing.");
