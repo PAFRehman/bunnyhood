@@ -1733,7 +1733,9 @@
   height: 82px;
   border: 3px solid var(--ld-ink);
   border-radius: 50%;
+  background: #dff59c;
   transform: rotate(-12deg);
+  transform-origin: bottom center;
 }
 
 .ld-share-rabbit i:nth-child(2) {
