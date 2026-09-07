@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { LAST_DANCE_OPENSEA_URL, lastDanceMintShareLine } from "@/lib/last-dance/mint";
 import { LastDanceMintCountdown } from "./mint-countdown";
 
 type MissingRequirement = "ENGAGEMENT" | "X_POST" | "ROBINHOOD_NFT" | "ROBINHOOD_TRANSACTION";
@@ -246,7 +247,12 @@ export function LastDanceApp() {
   function sharePassCard(entryId: string) {
     const shareUrl = `${window.location.origin}/TheLastDance/pass/${encodeURIComponent(entryId)}`;
     const target = new URL("https://x.com/intent/post");
-    target.searchParams.set("text", `I secured a Confirmed GTD Spot in The Last Dance by @BunnysHood. My wallet will be added soon.\n\n${shareUrl}`);
+    target.searchParams.set("text", [
+      "I secured a Confirmed GTD Spot in The Last Dance by @BunnysHood.",
+      lastDanceMintShareLine(state?.settings.mintOpensAt),
+      `My confirmed pass: ${shareUrl}`,
+      `Official mint: ${LAST_DANCE_OPENSEA_URL}`,
+    ].join("\n\n"));
     window.open(target.toString(), "_blank", "noopener,noreferrer");
   }
 
@@ -270,7 +276,7 @@ export function LastDanceApp() {
           <h1>GTD IS <em>GTD.</em></h1>
           <h2>Form is now closed.</h2>
           <CapacityMeter capacity={state.capacity} inverse />
-          <a href="https://opensea.io/collection/bunnyhoodxyz" target="_blank" rel="noreferrer">
+          <a href={LAST_DANCE_OPENSEA_URL} target="_blank" rel="noreferrer">
             <OpenSeaMark /><span>VIEW BUNNYHOOD ON OPENSEA</span><b>↗</b>
           </a>
         </div>
@@ -340,7 +346,7 @@ export function LastDanceApp() {
               <code>{shortWallet(entry.walletAddress)}</code>
             </div>
             <div className="ld-confirmed-proof"><span>NFT HOLDING <b>FOUND ✓</b></span><span>CHAIN ACTIVITY <b>FOUND ✓</b></span></div>
-            <div className="ld-wallet-note"><i /> YOUR WALLET WILL BE ADDED SOON.</div>
+            <div className="ld-wallet-note"><i /> GTD ACCESS CONFIRMED · READY FOR MINT.</div>
             <div className="ld-confirmed-number">LIVE CLAIMED / {Math.max(1, state.capacity.claimed).toString().padStart(3, "0")}</div>
           </div>
           <div className="ld-confirmation-copy">
@@ -351,7 +357,7 @@ export function LastDanceApp() {
             <div className="ld-pass-actions">
               <button type="button" onClick={() => void downloadPassCard(entry.id, state.user?.xUsername ?? "gtd")} disabled={Boolean(busy)}><span>{busy === "download" ? "BUILDING PNG…" : "DOWNLOAD GTD CARD"}</span><b>↓</b></button>
               <button type="button" onClick={() => sharePassCard(entry.id)}><span>SHARE PASS ON X</span><b>↗</b></button>
-              <a className="ld-opensea" href="https://opensea.io/collection/bunnyhoodxyz" target="_blank" rel="noreferrer"><OpenSeaMark /><span>GO TO OPENSEA MINT</span><b>↗</b></a>
+              <a className="ld-opensea" href={LAST_DANCE_OPENSEA_URL} target="_blank" rel="noreferrer"><OpenSeaMark /><span>GO TO OPENSEA MINT</span><b>↗</b></a>
             </div>
           </div>
         </section>
