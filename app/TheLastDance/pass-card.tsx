@@ -33,7 +33,7 @@ export function renderLastDancePassCard(pass: PassCardData) {
         display: "flex",
         position: "relative",
         overflow: "hidden",
-        background: "linear-gradient(138deg, #070719 0%, #18134a 58%, #09081f 100%)",
+        background: "linear-gradient(138deg, #070a05 0%, #17230d 58%, #090d06 100%)",
         color: "#f7f2e9",
         fontFamily: "Arial, Helvetica, sans-serif",
       }}>
@@ -45,7 +45,7 @@ export function renderLastDancePassCard(pass: PassCardData) {
           height: 650,
           display: "flex",
           borderRadius: 999,
-          background: "radial-gradient(circle, rgba(88,237,255,.42), rgba(128,87,255,.16) 47%, transparent 70%)",
+          background: "radial-gradient(circle, rgba(202,255,0,.38), rgba(112,151,27,.16) 47%, transparent 70%)",
         }} />
         <div style={{
           position: "absolute",
@@ -55,7 +55,7 @@ export function renderLastDancePassCard(pass: PassCardData) {
           height: 640,
           display: "flex",
           borderRadius: 999,
-          background: "radial-gradient(circle, rgba(255,92,125,.31), transparent 68%)",
+          background: "radial-gradient(circle, rgba(117,157,28,.3), transparent 68%)",
         }} />
         <div style={{
           position: "absolute",
@@ -83,36 +83,36 @@ export function renderLastDancePassCard(pass: PassCardData) {
               alignItems: "center",
               justifyContent: "center",
               borderRadius: 15,
-              background: "linear-gradient(135deg, #58edff, #8057ff 55%, #ff5c7d)",
-              color: "#15122d",
+              background: "linear-gradient(135deg, #caff00, #8eb51c 55%, #6f9820)",
+              color: "#11170d",
               fontSize: 18,
               fontWeight: 900,
               letterSpacing: -1,
             }}>BH</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ color: "#58edff", fontSize: 18, fontWeight: 900, letterSpacing: 4 }}>BUNNY HOOD</span>
-              <span style={{ color: "#8e87ab", fontSize: 10, fontWeight: 700, letterSpacing: 3 }}>ROBINHOOD CHAIN · 4663</span>
+              <span style={{ color: "#caff00", fontSize: 18, fontWeight: 900, letterSpacing: 4 }}>BUNNY HOOD</span>
+              <span style={{ color: "#929f88", fontSize: 10, fontWeight: 700, letterSpacing: 3 }}>ROBINHOOD CHAIN · 4663</span>
             </div>
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", marginTop: "auto", marginBottom: 33 }}>
-            <span style={{ color: "#ffdf6b", fontSize: 14, fontWeight: 900, letterSpacing: 4, marginBottom: 12 }}>THE LAST DANCE</span>
+            <span style={{ color: "#e9ff91", fontSize: 14, fontWeight: 900, letterSpacing: 4, marginBottom: 12 }}>THE LAST DANCE</span>
             <span style={{ fontSize: 63, fontWeight: 900, lineHeight: .84, letterSpacing: -5 }}>CONFIRMED</span>
             <span style={{
-              color: "#58edff",
+              color: "#caff00",
               fontSize: 66,
               fontWeight: 900,
               lineHeight: .88,
               letterSpacing: -5,
             }}>GTD SPOT.</span>
-            <span style={{ width: 450, color: "#b6afca", fontSize: 18, lineHeight: 1.45, marginTop: 22 }}>
+            <span style={{ width: 450, color: "#b2bca8", fontSize: 18, lineHeight: 1.45, marginTop: 22 }}>
               Your wallet will be added soon. Keep this pass for the BunnyHood OpenSea mint.
             </span>
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-            <span style={{ color: "#ff8da4", fontSize: 12, fontWeight: 900, letterSpacing: 3 }}>{mintLabel(pass.mintOpensAt)}</span>
-            <span style={{ color: "#77708e", fontSize: 10, fontWeight: 700, letterSpacing: 2 }}>BUNNYHOOD.XYZ</span>
+            <span style={{ color: "#b8e63c", fontSize: 12, fontWeight: 900, letterSpacing: 3 }}>{mintLabel(pass.mintOpensAt)}</span>
+            <span style={{ color: "#788470", fontSize: 10, fontWeight: 700, letterSpacing: 2 }}>BUNNYHOOD.XYZ</span>
           </div>
         </div>
 
@@ -133,15 +133,15 @@ export function renderLastDancePassCard(pass: PassCardData) {
             flexDirection: "column",
             border: "2px solid rgba(255,255,255,.72)",
             borderRadius: 32,
-            background: "linear-gradient(145deg, rgba(255,255,255,.88), rgba(196,183,255,.94) 38%, rgba(88,237,255,.86) 70%, rgba(255,127,153,.93))",
+            background: "linear-gradient(145deg, rgba(255,255,255,.9), rgba(221,239,164,.95) 38%, rgba(202,255,100,.9) 70%, rgba(183,226,71,.94))",
             padding: 28,
-            color: "#15122d",
+            color: "#11170d",
             boxShadow: "0 38px 80px rgba(0,0,0,.38)",
             transform: "rotate(3deg)",
           }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: 2 }}>FINAL ACCESS PASS</span>
-              <span style={{ borderRadius: 999, background: "#15122d", padding: "7px 10px", color: "#58edff", fontSize: 9, fontWeight: 900, letterSpacing: 2 }}>VERIFIED</span>
+              <span style={{ borderRadius: 999, background: "#11170d", padding: "7px 10px", color: "#caff00", fontSize: 9, fontWeight: 900, letterSpacing: 2 }}>VERIFIED</span>
             </div>
 
             <div style={{
@@ -159,7 +159,7 @@ export function renderLastDancePassCard(pass: PassCardData) {
                 width: 42,
                 height: 112,
                 display: "flex",
-                border: "5px solid #15122d",
+                border: "5px solid #11170d",
                 borderRadius: 999,
                 transform: "rotate(-11deg)",
               }} />
@@ -170,7 +170,7 @@ export function renderLastDancePassCard(pass: PassCardData) {
                 width: 42,
                 height: 112,
                 display: "flex",
-                border: "5px solid #15122d",
+                border: "5px solid #11170d",
                 borderRadius: 999,
                 transform: "rotate(11deg)",
               }} />
@@ -182,7 +182,7 @@ export function renderLastDancePassCard(pass: PassCardData) {
                 alignItems: "center",
                 justifyContent: "center",
                 borderRadius: 999,
-                background: "#15122d",
+                background: "#11170d",
                 color: "#fff",
                 fontSize: 35,
                 fontWeight: 900,
