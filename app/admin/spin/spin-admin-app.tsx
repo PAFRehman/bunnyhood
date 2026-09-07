@@ -338,7 +338,7 @@ export function SpinAdminApp() {
       await adminRequest("/api/admin/spin/login", { method: "POST", body: JSON.stringify({ password }) });
       setPassword("");
       const next = new URLSearchParams(window.location.search).get("next");
-      if (next === "/RabbitHole" || next === "/admin/rabbit-hole" || next === "/admin/waitlist" || next === "/admin/checker") {
+      if (next === "/RabbitHole" || next === "/admin/rabbit-hole" || next === "/admin/waitlist" || next === "/admin/checker" || next === "/TheLastDance" || next === "/admin/last-dance") {
         window.location.assign(next);
         return;
       }
@@ -526,7 +526,7 @@ export function SpinAdminApp() {
   if (needsLogin) {
     return (
       <main className="spin-admin-page"><div className="spin-admin-shell">
-        <div className="spin-admin-brand"><strong>BUNNY HOOD · DATA ADMIN</strong><div><a href="/admin/rabbit-hole">Eligibility manager</a><a href="/RabbitHole">Rabbit Hole</a><a href="/SpinTheWheel">Open wheel</a></div></div>
+        <div className="spin-admin-brand"><strong>BUNNY HOOD · DATA ADMIN</strong><div><a href="/admin/rabbit-hole">Eligibility manager</a><a href="/admin/last-dance">Last Dance admin</a><a href="/RabbitHole">Rabbit Hole</a><a href="/SpinTheWheel">Open wheel</a></div></div>
         <section className="admin-login"><div className="admin-card">
           <p className="section-kicker">PRIVATE CONTROL ROOM</p><h1>Admin sign in.</h1>
           <p>Manage campaigns, Rabbit Hole SBT eligibility, wallet permissions, permanent Neon records, storage health, and private exports.</p>
@@ -543,7 +543,7 @@ export function SpinAdminApp() {
 
   return (
     <main className="spin-admin-page"><div className="spin-admin-shell">
-      <div className="spin-admin-brand"><strong>BUNNY HOOD · DATA ADMIN</strong><div><span className="admin-live"><i /> LIVE · 5S</span><a href="/admin/rabbit-hole">Eligibility manager</a><a href="/RabbitHole">Rabbit Hole</a><a href="/SpinTheWheel">Open wheel</a><button onClick={logout} type="button">Sign out</button></div></div>
+      <div className="spin-admin-brand"><strong>BUNNY HOOD · DATA ADMIN</strong><div><span className="admin-live"><i /> LIVE · 5S</span><a href="/admin/rabbit-hole">Eligibility manager</a><a href="/admin/last-dance">Last Dance admin</a><a href="/RabbitHole">Rabbit Hole</a><a href="/SpinTheWheel">Open wheel</a><button onClick={logout} type="button">Sign out</button></div></div>
       <section className="admin-dashboard">
         <header><div><p className="section-kicker">PRIVATE CONTROL ROOM</p><h1>Run the Hood.<br /><em>Know the data.</em></h1></div><div className="admin-header-actions"><span>Last refresh · {new Date(dashboard.generatedAt).toLocaleTimeString()}</span>{exportControls}</div></header>
 
