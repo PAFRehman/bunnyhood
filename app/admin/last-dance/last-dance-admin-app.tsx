@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import { LAST_DANCE_POST_TEXT_MAX_LENGTH } from "@/lib/last-dance/defaults";
 
 type AdminData = {
   settings: {
@@ -198,8 +199,8 @@ export function LastDanceAdminApp() {
           </div>
 
           <label className="lda-copy">
-            <span>DEFAULT CREATE-POST TEXT <b>{postText.length} / 240</b></span>
-            <textarea value={postText} onChange={(event) => setPostText(event.target.value.slice(0, 240))} rows={6} placeholder="Write the default Last Dance post…" />
+            <span>DEFAULT CREATE-POST TEXT <b>{postText.length} / {LAST_DANCE_POST_TEXT_MAX_LENGTH}</b></span>
+            <textarea value={postText} onChange={(event) => setPostText(event.target.value.slice(0, LAST_DANCE_POST_TEXT_MAX_LENGTH))} rows={9} placeholder="Write the default Last Dance post…" />
             <p>@BunnysHood is required during verification and is appended by the public composer when missing.</p>
           </label>
 

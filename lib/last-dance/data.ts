@@ -7,6 +7,7 @@ import { getDb, inTransaction, type SpinDb } from "@/lib/spin/db";
 import { getCookie, HttpError } from "@/lib/spin/http";
 import { verifyAdminTicket } from "@/lib/spin/security";
 import { inspectRobinhoodWallet } from "./chain";
+import { LAST_DANCE_POST_TEXT_MAX_LENGTH } from "./defaults";
 import { ensureLastDanceSchema } from "./schema";
 
 export const LAST_DANCE_TASK_WAIT_MS = 5_000;
@@ -423,8 +424,12 @@ export async function updateLastDanceSettings(input: {
     throw new HttpError(400, "Add the complete official X post URL before opening public access.", "ENGAGEMENT_POST_REQUIRED");
   }
   const postText = input.postText.trim();
-  if (!postText || postText.length > 240) {
-    throw new HttpError(400, "Post text must contain 1–240 characters.", "BAD_POST_TEXT");
+  if (!postText || postText.length > LAST_DANCE_POST_TEXT_MAX_LENGTH) {
+    throw new HttpError(
+      400,
+      `Post text must contain 1–${LAST_DANCE_POST_TEXT_MAX_LENGTH} characters.`,
+      "BAD_POST_TEXT",
+    );
   }
   const mintTimestamp = input.mintOpensAt ? Date.parse(input.mintOpensAt) : Number.NaN;
   if (input.mintOpensAt && !Number.isFinite(mintTimestamp)) {

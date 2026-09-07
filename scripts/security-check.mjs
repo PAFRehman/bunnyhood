@@ -43,6 +43,7 @@ const migration = [
   "019_last_dance.sql",
   "020_last_dance_mint_schedule.sql",
   "021_last_dance_gtd_mint.sql",
+  "022_last_dance_default_post.sql",
 ].map((name) => readFileSync(join(root, "db/migrations", name), "utf8")).join("\n");
 const wheel = readFileSync(join(root, "lib/spin/wheel.ts"), "utf8");
 const campaigns = readFileSync(join(root, "lib/spin/campaigns.ts"), "utf8");
@@ -111,6 +112,8 @@ const spinShareCardRoute = readFileSync(join(root, "app/api/spin/share-card/rout
 const lastDanceData = readFileSync(join(root, "lib/last-dance/data.ts"), "utf8");
 const lastDanceChain = readFileSync(join(root, "lib/last-dance/chain.ts"), "utf8");
 const lastDanceMint = readFileSync(join(root, "lib/last-dance/mint.ts"), "utf8");
+const lastDanceDefaults = readFileSync(join(root, "lib/last-dance/defaults.ts"), "utf8");
+const lastDanceSchema = readFileSync(join(root, "lib/last-dance/schema.ts"), "utf8");
 const lastDancePage = readFileSync(join(root, "app/TheLastDance/page.tsx"), "utf8");
 const lastDanceApp = readFileSync(join(root, "app/TheLastDance/last-dance-app.tsx"), "utf8");
 const lastDancePassCard = readFileSync(join(root, "app/TheLastDance/pass-card.tsx"), "utf8");
@@ -333,6 +336,7 @@ if (/wallet will be added soon/i.test(`${lastDanceApp}\n${lastDancePassPage}\n${
 if (!/bunny-hood-logo\.png/.test(lastDancePassCard) || !/transformOrigin: "bottom center"/.test(lastDancePassCard)) failures.push("The downloadable Last Dance card is missing the BunnyHood logo or corrected ear geometry.");
 if (!/getLastDancePublicPass/.test(lastDancePassRoute) || !/content-disposition/.test(lastDancePassRoute) || !/summary_large_image/.test(lastDancePassPage) || !/maskedWallet/.test(`${lastDanceData}\n${lastDancePassPage}`) || /walletAddress/.test(lastDancePassPage)) failures.push("The public Last Dance pass image is missing, cannot download, or exposes the complete wallet.");
 if (!/mintOpensAt/.test(lastDanceAdminApp) || !/datetime-local/.test(lastDanceAdminApp) || !/mint_opens_at/.test(lastDanceData)) failures.push("The Last Dance mint countdown cannot be scheduled from its private admin studio.");
+if (!/Been watching @BunnysHood for a while/.test(lastDanceDefaults) || !/30-day Burn Window after mint/.test(lastDanceDefaults) || !/opensea\.io\/collection\/bunnyhoodxyz\/overview/.test(lastDanceDefaults) || !/LAST_DANCE_POST_TEXT_MAX_LENGTH = 320/.test(lastDanceDefaults) || !/022_last_dance_default_post/.test(`${migration}\n${lastDanceSchema}`)) failures.push("The Last Dance default create-post text is incomplete or cannot fit in the admin setting.");
 if (!/className="page-intro"/.test(lastDancePage) || !/ENTER THE HOOD/.test(lastDancePage) || !/<SiteNav \/>/.test(lastDancePage)) failures.push("The Last Dance does not reuse the official BunnyHood opening and navigation.");
 if (!/GTD IS/.test(lastDanceApp) || !/Form is now closed\./.test(lastDanceApp) || !/opensea\.io\/collection\/bunnyhoodxyz\/overview/.test(lastDanceMint) || !/missingCopy/.test(lastDanceApp)) failures.push("The Last Dance closed state, exact OpenSea exit, or missing-requirements popup is incomplete.");
 if (!/source: "\/LastDance\/:path\*"/.test(readFileSync(join(root, "next.config.ts"), "utf8"))) failures.push("The /LastDance alias does not reach /TheLastDance.");

@@ -2,8 +2,10 @@ import "server-only";
 
 import { getDb, inTransaction } from "@/lib/spin/db";
 import { ensureProductionSchema } from "@/lib/spin/schema";
+import { DEFAULT_LAST_DANCE_POST_TEXT } from "./defaults";
 
-const MIGRATION_ID = "021_last_dance_gtd_mint";
+const MIGRATION_ID = "022_last_dance_default_post";
+const DEFAULT_POST_SQL = `'${DEFAULT_LAST_DANCE_POST_TEXT.replace(/'/g, "''")}'`;
 
 const statements = [
   `create table if not exists last_dance_settings (
@@ -11,7 +13,7 @@ const statements = [
     public_enabled boolean not null default false,
     max_entries integer not null default 100 check (max_entries between 1 and 100000),
     engagement_post_url text not null default 'https://x.com/BunnysHood',
-    post_text text not null default 'The Last Dance is here. @BunnysHood',
+    post_text text not null default ${DEFAULT_POST_SQL},
     updated_at timestamptz not null default now()
   )`,
   `insert into last_dance_settings (id) values (1) on conflict (id) do nothing`,
@@ -51,6 +53,12 @@ const statements = [
     set mint_opens_at = '2026-09-09 15:30:00+00'::timestamptz,
         updated_at = now()
     where id = 1 and mint_opens_at is null`,
+  `alter table last_dance_settings
+    alter column post_text set default ${DEFAULT_POST_SQL}`,
+  `update last_dance_settings
+    set post_text = ${DEFAULT_POST_SQL},
+        updated_at = now()
+    where id = 1`,
 ] as const;
 
 declare global {
