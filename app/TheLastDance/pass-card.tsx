@@ -1,4 +1,6 @@
+/* eslint-disable @next/next/no-img-element -- ImageResponse requires a plain image element. */
 import { ImageResponse } from "next/og";
+import { LAST_DANCE_GTD_MINT_OPENS_AT } from "@/lib/last-dance/mint";
 
 export const lastDancePassImageSize = { width: 1200, height: 630 };
 export const lastDancePassImageAlt = "Confirmed BunnyHood GTD spot for The Last Dance";
@@ -10,8 +12,7 @@ type PassCardData = {
 };
 
 function mintLabel(value: string | null) {
-  if (!value) return "MINT TIME ANNOUNCING SOON";
-  const date = new Date(value);
+  const date = new Date(value || LAST_DANCE_GTD_MINT_OPENS_AT);
   if (date.getTime() <= Date.now()) return "OPENSEA MINT IS LIVE";
   return `MINT · ${date.toLocaleString("en-US", {
     timeZone: "UTC",
@@ -76,19 +77,18 @@ export function renderLastDancePassCard(pass: PassCardData) {
           padding: "75px 0 69px 82px",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <div style={{
-              width: 48,
-              height: 48,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              borderRadius: 15,
-              background: "linear-gradient(135deg, #caff00, #8eb51c 55%, #6f9820)",
-              color: "#11170d",
-              fontSize: 18,
-              fontWeight: 900,
-              letterSpacing: -1,
-            }}>BH</div>
+            <img
+              alt="BunnyHood logo"
+              src="https://www.bunnyhood.xyz/assets/bunny-hood-logo.png"
+              width="48"
+              height="48"
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 15,
+                objectFit: "cover",
+                objectPosition: "center",
+              }} />
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               <span style={{ color: "#caff00", fontSize: 18, fontWeight: 900, letterSpacing: 4 }}>BUNNY HOOD</span>
               <span style={{ color: "#929f88", fontSize: 10, fontWeight: 700, letterSpacing: 3 }}>ROBINHOOD CHAIN · 4663</span>
@@ -106,7 +106,7 @@ export function renderLastDancePassCard(pass: PassCardData) {
               letterSpacing: -5,
             }}>GTD SPOT.</span>
             <span style={{ width: 450, color: "#b2bca8", fontSize: 18, lineHeight: 1.45, marginTop: 22 }}>
-              Your wallet will be added soon. Keep this pass for the BunnyHood OpenSea mint.
+              GTD access confirmed. Mint through the official BunnyHood OpenSea page.
             </span>
           </div>
 
@@ -155,33 +155,39 @@ export function renderLastDancePassCard(pass: PassCardData) {
               <div style={{
                 position: "absolute",
                 top: 0,
-                left: 135,
-                width: 42,
-                height: 112,
+                left: 139,
+                width: 46,
+                height: 118,
                 display: "flex",
                 border: "5px solid #11170d",
-                borderRadius: 999,
-                transform: "rotate(-11deg)",
+                borderRadius: "62% 62% 42% 42%",
+                background: "#dff59c",
+                transform: "rotate(-12deg)",
+                transformOrigin: "bottom center",
               }} />
               <div style={{
                 position: "absolute",
                 top: 0,
-                right: 135,
-                width: 42,
-                height: 112,
+                right: 139,
+                width: 46,
+                height: 118,
                 display: "flex",
                 border: "5px solid #11170d",
-                borderRadius: 999,
-                transform: "rotate(11deg)",
+                borderRadius: "62% 62% 42% 42%",
+                background: "#dff59c",
+                transform: "rotate(12deg)",
+                transformOrigin: "bottom center",
               }} />
               <div style={{
-                width: 122,
-                height: 94,
+                width: 138,
+                height: 102,
                 display: "flex",
                 position: "relative",
+                zIndex: 2,
                 alignItems: "center",
                 justifyContent: "center",
-                borderRadius: 999,
+                border: "5px solid #11170d",
+                borderRadius: "52% 52% 47% 47%",
                 background: "#11170d",
                 color: "#fff",
                 fontSize: 35,
