@@ -37,6 +37,11 @@ const nextConfig: NextConfig = {
         destination: "/RabbitHole",
         permanent: true,
       },
+      {
+        source: "/LastDance/:path*",
+        destination: "/TheLastDance",
+        permanent: false,
+      },
     ];
   },
   async headers() {

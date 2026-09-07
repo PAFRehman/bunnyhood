@@ -13,12 +13,15 @@ type OAuthPayload = {
   state: string;
   verifier: string;
   referralCode?: string | null;
-  returnTo?: "/RabbitHole";
+  returnTo?: "/RabbitHole" | "/TheLastDance";
   exp: number;
 };
 
 function safeTarget(payload: OAuthPayload | null) {
-  return payload?.returnTo === "/RabbitHole" ? "/RabbitHole" : "/SpinTheWheel";
+  if (payload?.returnTo === "/RabbitHole" || payload?.returnTo === "/TheLastDance") {
+    return payload.returnTo;
+  }
+  return "/SpinTheWheel";
 }
 
 function redirectWithError(code: string, target = "/SpinTheWheel") {

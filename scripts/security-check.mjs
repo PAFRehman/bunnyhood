@@ -40,6 +40,7 @@ const migration = [
   "016_bunny_evolution_rules.sql",
   "017_bunny_point_sales.sql",
   "018_checker_wallet_reset.sql",
+  "019_last_dance.sql",
 ].map((name) => readFileSync(join(root, "db/migrations", name), "utf8")).join("\n");
 const wheel = readFileSync(join(root, "lib/spin/wheel.ts"), "utf8");
 const campaigns = readFileSync(join(root, "lib/spin/campaigns.ts"), "utf8");
@@ -102,6 +103,15 @@ const checkerAdminRoute = readFileSync(join(root, "app/api/admin/checker/route.t
 const spinPage = readFileSync(join(root, "app/SpinTheWheel/page.tsx"), "utf8");
 const spinSocialCard = readFileSync(join(root, "app/SpinTheWheel/social-card.tsx"), "utf8");
 const spinShareCardRoute = readFileSync(join(root, "app/api/spin/share-card/route.tsx"), "utf8");
+const lastDanceData = readFileSync(join(root, "lib/last-dance/data.ts"), "utf8");
+const lastDanceChain = readFileSync(join(root, "lib/last-dance/chain.ts"), "utf8");
+const lastDancePage = readFileSync(join(root, "app/TheLastDance/page.tsx"), "utf8");
+const lastDanceApp = readFileSync(join(root, "app/TheLastDance/last-dance-app.tsx"), "utf8");
+const lastDanceAdminPage = readFileSync(join(root, "app/admin/last-dance/page.tsx"), "utf8");
+const lastDanceAdminRoute = readFileSync(join(root, "app/api/admin/last-dance/route.ts"), "utf8");
+const lastDanceEnterRoute = readFileSync(join(root, "app/api/last-dance/enter/route.ts"), "utf8");
+const lastDancePostRoute = readFileSync(join(root, "app/api/last-dance/post/route.ts"), "utf8");
+const lastDanceEngagementRoute = readFileSync(join(root, "app/api/last-dance/engagement/route.ts"), "utf8");
 const storageGatedRoutes = [
   "app/api/spin/auth/x/start/route.ts",
   "app/api/spin/auth/x/callback/route.ts",
@@ -125,6 +135,9 @@ const storageGatedRoutes = [
   "app/api/waitlist/join-post/route.ts",
   "app/api/waitlist/join/route.ts",
   "app/api/waitlist/bonus-post/route.ts",
+  "app/api/last-dance/engagement/route.ts",
+  "app/api/last-dance/post/route.ts",
+  "app/api/last-dance/enter/route.ts",
 ].map((name) => ({ name, source: readFileSync(join(root, name), "utf8") }));
 const failures = [];
 
@@ -290,6 +303,16 @@ if (!/className="page-intro"/.test(checkerPage) || !/ENTER THE HOOD/.test(checke
 if (!/SHARE ON X/.test(checkerPage) || !/x\.com\/intent\/post/.test(checkerPage) || !/@BunnysHood/.test(checkerPage) || !/eligibleRounds\.map/.test(checkerPage)) failures.push("The Checker result cannot share its exact eligible rounds on X.");
 if (/WALLET INDEX · LIVE|01 \/ GUARANTEED|RH-CHAIN \/ 143|CHECKER UPDATES DAILY|waiting for the next list update|ELIGIBILITY CHECKER|No wallet connection or signature required|TBA/.test(checkerPage)) failures.push("Removed Checker labels remain public.");
 if (/admin\/checker/.test(checkerPage) || /href=["']\/admin\/checker/.test(adminApp)) failures.push("The hidden checker admin URL leaked into public or main-admin navigation.");
+if (!/create table if not exists last_dance_settings/.test(migration) || !/public_enabled boolean not null default false/.test(migration) || !/max_entries integer not null default 100/.test(migration)) failures.push("The Last Dance is not private by default or lacks an admin-controlled hard cap.");
+if (!/user_id uuid not null unique/.test(migration) || !/x_user_id text not null unique/.test(migration) || !/last_dance_wallet_lower_unique/.test(migration)) failures.push("The Last Dance does not enforce one entry per user, X identity, and wallet.");
+if (!/from last_dance_settings where id = 1 for update/.test(lastDanceData) || !/LAST_DANCE_CLOSED/.test(lastDanceData)) failures.push("The Last Dance capacity can oversubscribe under concurrent entries.");
+if (!/publish\.x\.com\/oembed/.test(lastDanceData) || !/xUsername !== user\.xUsername\.toLowerCase/.test(lastDanceData) || !/@bunnyshood/.test(lastDanceData) || !/on conflict \(post_id\) do nothing/.test(lastDanceData)) failures.push("The Last Dance X post is not bound to the connected account, required tag, and a unique public post.");
+if (!/CHAIN_ID = 4663/.test(lastDanceChain) || !/robinhoodchain\.blockscout\.com/.test(lastDanceChain) || !/ROBINHOOD_MAINNET_RPC_URL/.test(lastDanceChain) || !/AbortSignal\.timeout/.test(lastDanceChain)) failures.push("The Last Dance chain proof is not fixed to bounded Robinhood mainnet endpoints.");
+if (!/requireSessionUser\(request, true\)/.test(lastDanceEnterRoute) || !/requireSessionUser\(request, true\)/.test(lastDancePostRoute) || !/requireSessionUser\(request, true\)/.test(lastDanceEngagementRoute) || !/assertSameOrigin/.test(`${lastDanceEnterRoute}\n${lastDancePostRoute}\n${lastDanceEngagementRoute}`)) failures.push("The Last Dance mutations are missing authenticated CSRF protection.");
+if (!/requireSpinAdmin/.test(lastDanceAdminRoute) || !/assertSameOrigin/.test(lastDanceAdminRoute) || !/recordAdminAction/.test(lastDanceAdminRoute) || !/verifyAdminTicket/.test(lastDanceAdminPage)) failures.push("The Last Dance controls are not protected and audited in admin.");
+if (!/className="page-intro"/.test(lastDancePage) || !/ENTER THE HOOD/.test(lastDancePage) || !/<SiteNav \/>/.test(lastDancePage)) failures.push("The Last Dance does not reuse the official BunnyHood opening and navigation.");
+if (!/GTD IS/.test(lastDanceApp) || !/Form is now closed\./.test(lastDanceApp) || !/opensea\.io\/collection\/bunnyhoodxyz/.test(lastDanceApp) || !/missingCopy/.test(lastDanceApp)) failures.push("The Last Dance closed state, OpenSea exit, or missing-requirements popup is incomplete.");
+if (!/source: "\/LastDance\/:path\*"/.test(readFileSync(join(root, "next.config.ts"), "utf8"))) failures.push("The /LastDance alias does not reach /TheLastDance.");
 if (/debug:\s*stack|Internal Error:/.test(readFileSync(join(root, "lib/spin/http.ts"), "utf8"))) failures.push("Internal server stack details are exposed to clients.");
 
 if (failures.length) {

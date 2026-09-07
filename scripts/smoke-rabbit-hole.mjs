@@ -110,6 +110,20 @@ try {
     checkerAdmin.headers.get("location") === "/admin/spin?next=/admin/checker",
     "Checker wallet manager did not redirect through the admin gate.",
   );
+
+  const lastDanceAlias = await fetch(`http://127.0.0.1:${port}/LastDance`, { redirect: "manual" });
+  assert(lastDanceAlias.status === 307, `Last Dance alias returned ${lastDanceAlias.status}.`);
+  assert(
+    lastDanceAlias.headers.get("location") === "/TheLastDance",
+    "Last Dance alias has the wrong canonical target.",
+  );
+
+  const lastDanceAdmin = await fetch(`http://127.0.0.1:${port}/admin/last-dance`, { redirect: "manual" });
+  assert(lastDanceAdmin.status === 307, `Last Dance admin gate returned ${lastDanceAdmin.status}.`);
+  assert(
+    lastDanceAdmin.headers.get("location") === "/admin/spin?next=/admin/last-dance",
+    "Last Dance admin did not redirect through the existing admin gate.",
+  );
 } finally {
   await stopServer(server);
 }

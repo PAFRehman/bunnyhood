@@ -8,11 +8,16 @@ import { normalizeReferralCode, validReferralCode } from "@/lib/spin/users";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function safeReturnTo(value: string | null) {
+  return value === "/TheLastDance" ? "/TheLastDance" : undefined;
+}
+
 export async function GET(request: Request) {
   try {
     await assertPublicStorageWritable();
     const requestUrl = new URL(request.url);
     const requestedReferralCode = normalizeReferralCode(requestUrl.searchParams.get("ref") ?? "");
+    const returnTo = safeReturnTo(requestUrl.searchParams.get("returnTo"));
     const state = randomToken(24);
     const verifier = randomToken(48);
     const challenge = createHash("sha256").update(verifier).digest("base64url");
@@ -20,6 +25,7 @@ export async function GET(request: Request) {
       state,
       verifier,
       referralCode: validReferralCode(requestedReferralCode) ? requestedReferralCode : null,
+      returnTo,
       exp: Date.now() + 10 * 60_000,
     });
     const { clientId, redirectUri } = getXConfig();
