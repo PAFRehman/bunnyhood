@@ -98,7 +98,7 @@ function OpenSeaCta({ label }: { label: string }) {
     >
       <span className="ld-opensea-badge"><OpenSeaMark /></span>
       <span className="ld-opensea-copy">
-        <small>OFFICIAL BUNNYHOOD COLLECTION</small>
+        <small><i /> VERIFIED MINT DESTINATION</small>
         <strong>{label}</strong>
       </span>
       <b aria-hidden="true">↗</b>
