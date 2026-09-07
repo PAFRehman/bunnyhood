@@ -364,8 +364,11 @@ Start from [`.env.example`](.env.example). Never prefix the minter key, Pinata J
 | `PINATA_GATEWAY_URL` | App | Optional dedicated public HTTPS Pinata gateway origin for Bunny Hood display links; invalid values safely fall back to `https://gateway.pinata.cloud` and are never placed in permanent token metadata |
 | `ROBINHOOD_TESTNET_RPC_URL` | App and deploy shell | Private testnet RPC recommended for reliability |
 | `ROBINHOOD_MAINNET_RPC_URL` | App and deploy shell | Private mainnet RPC recommended for reliability |
+| `ROBINHOOD_MAINNET_RPC_URL_2`, `ROBINHOOD_MAINNET_RPC_URL_3` | App | Optional mainnet RPC fallbacks tried in order after the primary URL |
+| `ROBINHOOD_BLOCKSCOUT_API_KEY` | App | Primary server-only Blockscout key for The Last Dance NFT and transaction checks |
+| `ROBINHOOD_BLOCKSCOUT_API_KEY_2`, `ROBINHOOD_BLOCKSCOUT_API_KEY_3` | App | Optional server-only Blockscout fallbacks; rate limits or provider failures automatically move to the next key |
 
-If a private RPC is absent, the code falls back to Robinhood Chain's public RPC. Robinhood documents those endpoints as rate-limited and not recommended for production; see [Connecting to Robinhood Chain](https://docs.robinhood.com/chain/connecting/).
+The Last Dance tries Blockscout keys and mainnet RPC URLs in numeric order, removes duplicates, and falls back to the public Robinhood endpoints only after configured providers fail. Keep every key and private RPC server-only. If a private RPC is absent, the code falls back to Robinhood Chain's public RPC. Robinhood documents those endpoints as rate-limited and not recommended for production; see [Connecting to Robinhood Chain](https://docs.robinhood.com/chain/connecting/).
 
 ### Shared application requirements
 

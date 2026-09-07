@@ -12,32 +12,64 @@ const NFT_TYPES = "ERC-721,ERC-404,ERC-1155";
 type ItemsReply = { items?: unknown[] };
 type AlchemyNftReply = { result?: { ownedNfts?: unknown[]; totalCount?: number | string }; error?: unknown };
 type RpcReply = { result?: string; error?: unknown };
+type RpcEnvelope = { result?: unknown; error?: unknown };
 
-function rpcUrl() {
-  return process.env.ROBINHOOD_MAINNET_RPC_URL?.trim() || PUBLIC_RPC_URL;
+function unique(values: Array<string | undefined>) {
+  return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
 }
 
-function blockscoutUrl(path: string) {
-  const apiKey = process.env.ROBINHOOD_BLOCKSCOUT_API_KEY?.trim()
-    || process.env.BLOCKSCOUT_API_KEY?.trim();
-  const url = new URL(path, apiKey ? `${BLOCKSCOUT_API_URL}/` : `${EXPLORER_API_URL}/`);
-  if (apiKey) url.searchParams.set("apikey", apiKey);
-  return url;
+function rpcUrls() {
+  return unique([
+    process.env.ROBINHOOD_MAINNET_RPC_URL,
+    process.env.ROBINHOOD_MAINNET_RPC_URL_2,
+    process.env.ROBINHOOD_MAINNET_RPC_URL_3,
+    PUBLIC_RPC_URL,
+  ]);
+}
+
+function blockscoutApiKeys() {
+  return unique([
+    process.env.ROBINHOOD_BLOCKSCOUT_API_KEY || process.env.BLOCKSCOUT_API_KEY,
+    process.env.ROBINHOOD_BLOCKSCOUT_API_KEY_2,
+    process.env.ROBINHOOD_BLOCKSCOUT_API_KEY_3,
+  ]);
+}
+
+function blockscoutUrls(path: string) {
+  const keyed = blockscoutApiKeys().map((apiKey) => {
+    const url = new URL(path, `${BLOCKSCOUT_API_URL}/`);
+    url.searchParams.set("apikey", apiKey);
+    return url;
+  });
+  return [...keyed, new URL(path, `${EXPLORER_API_URL}/`)];
 }
 
 async function getIndexedItems(path: string, params?: Record<string, string>) {
-  const url = blockscoutUrl(path);
-  for (const [key, value] of Object.entries(params ?? {})) url.searchParams.set(key, value);
-  const response = await fetch(url, {
-    headers: { accept: "application/json" },
-    cache: "no-store",
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
-  if (response.status === 404) return [];
-  if (!response.ok) throw new Error(`Blockscout returned ${response.status}.`);
-  const data = await response.json() as ItemsReply;
-  if (!Array.isArray(data.items)) throw new Error("Blockscout returned an invalid response.");
-  return data.items;
+  let lastError: unknown = new Error("No Blockscout provider is configured.");
+  for (const candidate of blockscoutUrls(path)) {
+    for (const [key, value] of Object.entries(params ?? {})) candidate.searchParams.set(key, value);
+    try {
+      const response = await fetch(candidate, {
+        headers: { accept: "application/json" },
+        cache: "no-store",
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      if (response.status === 404) return [];
+      if (!response.ok) {
+        lastError = new Error(`Blockscout returned ${response.status}.`);
+        continue;
+      }
+      const data = await response.json() as ItemsReply;
+      if (!Array.isArray(data.items)) {
+        lastError = new Error("Blockscout returned an invalid response.");
+        continue;
+      }
+      return data.items;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
 }
 
 async function getBlockscoutNftCount(wallet: string) {
@@ -51,15 +83,31 @@ async function getBlockscoutTransactionCount(wallet: string) {
 }
 
 async function rpc(method: string, params: unknown[]) {
-  const response = await fetch(rpcUrl(), {
-    method: "POST",
-    headers: { "content-type": "application/json", accept: "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-    cache: "no-store",
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
-  if (!response.ok) throw new Error(`Robinhood RPC returned ${response.status}.`);
-  return response.json();
+  let lastError: unknown = new Error("No Robinhood RPC provider is configured.");
+  for (const url of rpcUrls()) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        lastError = new Error(`Robinhood RPC returned ${response.status}.`);
+        continue;
+      }
+      const data = await response.json() as RpcEnvelope;
+      if (data.error) {
+        lastError = new Error("The Robinhood RPC provider rejected the request.");
+        continue;
+      }
+      return data;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
 }
 
 async function getAlchemyNftCount(wallet: string) {

@@ -193,7 +193,7 @@ export function LastDanceAdminApp() {
             <label className="lda-time-field">
               <span>OPENSEA MINT OPENS <b>YOUR LOCAL TIME</b></span>
               <input type="datetime-local" value={mintOpensAt} onChange={(event) => setMintOpensAt(event.target.value)} />
-              <p>This powers the live countdown on every confirmed GTD pass. Leave empty until the mint time is final.</p>
+              <p>This powers the live countdown on every confirmed GTD pass. The verified OpenSea GTD start is preloaded; edit only if the official schedule changes.</p>
             </label>
           </div>
 
