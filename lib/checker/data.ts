@@ -241,30 +241,25 @@ export async function upsertCheckerWallets(
         progress.stage = "write";
         progress.failedBatch = Math.floor(offset / WRITE_BATCH_SIZE) + 1;
         const batch = entriesToWrite.slice(offset, offset + WRITE_BATCH_SIZE);
-        const parameters: string[] = [];
-        const values = batch.map((entry, index) => {
-          parameters.push(entry.walletAddress, entry.eligibilityType);
-          const parameter = index * 2;
-          return `($${parameter + 1}, $${parameter + 2}, now(), now())`;
-        });
+        const rows = batch.map((entry) => ({
+          wallet_address: entry.walletAddress,
+          eligibility_type: entry.eligibilityType,
+        }));
 
-        // Keep the SQL deliberately simple for Neon/PgBouncer. Small parameterized
-        // VALUES batches avoid JSON record expansion and oversized statements.
-        await sql.unsafe(
-          `insert into checker_wallets (
-            wallet_address,
-            eligibility_type,
-            imported_at,
-            updated_at
-          )
-          values ${values.join(",")}
+        // Use postgres.js' native bulk helper so placeholder numbering and value
+        // serialization stay compatible with both Neon and its pooled endpoint.
+        await sql`
+          insert into checker_wallets ${sql(
+            rows,
+            "wallet_address",
+            "eligibility_type",
+          )}
           on conflict (wallet_address)
           do update set
             eligibility_type = excluded.eligibility_type,
             imported_at = now(),
-            updated_at = now()`,
-          parameters,
-        );
+            updated_at = now()
+        `;
       }
 
       progress.stage = "stats";
@@ -278,6 +273,10 @@ export async function upsertCheckerWallets(
     const databaseCode = typeof error === "object" && error !== null && "code" in error
       ? String(error.code).slice(0, 32)
       : "UNKNOWN";
+    const safeDatabaseCode = databaseCode
+      .replace(/[^a-z0-9_]/gi, "")
+      .toUpperCase()
+      .slice(0, 32) || "UNKNOWN";
     console.error("Checker wallet bulk import failed.", {
       stage: progress.stage,
       batch: progress.failedBatch || undefined,
@@ -293,7 +292,7 @@ export async function upsertCheckerWallets(
     throw new HttpError(
       503,
       `The import failed while ${stageLabel}. No partial changes were kept. Please try again.`,
-      `CHECKER_IMPORT_${progress.stage.toUpperCase()}_FAILED`,
+      `CHECKER_IMPORT_${progress.stage.toUpperCase()}_FAILED_${safeDatabaseCode}`,
     );
   }
 }
