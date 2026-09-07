@@ -90,8 +90,15 @@ button { color: inherit; }
 .marquee-track { display: flex; width: max-content; gap: 18px; padding: 8px 9px 16px; animation: marquee 44s linear infinite; }
 .marquee-track:hover, .marquee-track:focus-within { animation-play-state: paused; }
 .nft-card { position: relative; width: clamp(240px,23vw,350px); flex: 0 0 auto; aspect-ratio: 1; overflow: hidden; border: 0; border-radius: 18px; background: #171a15; padding: 0; box-shadow: 0 14px 38px rgba(25,30,20,.13); cursor: zoom-in; text-align: left; }
-.nft-card img { width: 100%; height: 100%; object-fit: cover; transition: transform 500ms cubic-bezier(.2,.7,.2,1); }
-.nft-card:hover img { transform: scale(1.045); }
+.nft-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(16px) saturate(.82) brightness(.82);
+  transform: scale(1.12);
+  transition: filter 500ms cubic-bezier(.2,.7,.2,1),transform 500ms cubic-bezier(.2,.7,.2,1);
+}
+.nft-card:hover img { filter: blur(14px) saturate(.9) brightness(.88); transform: scale(1.16); }
 .nft-wash { position: absolute; inset: 0; background: linear-gradient(to top,rgba(6,8,5,.9),transparent 55%); pointer-events: none; }
 .nft-number, .nft-name, .nft-open { position: absolute; z-index: 2; font-weight: 800; letter-spacing: .08em; }
 .nft-number { top: 18px; left: 18px; display: grid; width: 38px; height: 38px; place-items: center; border-radius: 50%; background: var(--lime); color: var(--ink); font-size: 10px; }
@@ -237,7 +244,7 @@ footer > a:last-child { display: inline-flex; align-items: center; gap: 9px; jus
 .art-modal { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 70px 24px 24px; background: rgba(4,5,3,.94); backdrop-filter: blur(18px); animation: modal-in 220ms ease both; }
 .modal-close { position: absolute; top: 23px; right: 28px; border: 0; background: transparent; color: var(--lime); cursor: pointer; font-size: 11px; font-weight: 900; letter-spacing: .13em; }
 .modal-art { width: min(85vw,820px); max-height: 83vh; }
-.modal-art img { display: block; width: 100%; max-height: 73vh; border-radius: 16px; object-fit: contain; }
+.modal-art img { display: block; width: 100%; max-height: 73vh; border-radius: 16px; object-fit: contain; filter: blur(22px) saturate(.82) brightness(.78); transform: scale(1.035); }
 .modal-art > div { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-top: 14px; font-size: 9px; letter-spacing: .15em; }
 .modal-art strong { color: var(--lime); font-size: 13px; }
 
