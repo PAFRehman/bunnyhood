@@ -3,7 +3,7 @@ import "server-only";
 import { getDb, inTransaction } from "@/lib/spin/db";
 import { ensureProductionSchema } from "@/lib/spin/schema";
 
-const MIGRATION_ID = "020_last_dance_mint_schedule";
+const MIGRATION_ID = "021_last_dance_gtd_mint";
 
 const statements = [
   `create table if not exists last_dance_settings (
@@ -45,6 +45,12 @@ const statements = [
     on last_dance_entries (entered_at desc)`,
   `alter table last_dance_settings
     add column if not exists mint_opens_at timestamptz`,
+  `alter table last_dance_settings
+    alter column mint_opens_at set default '2026-09-09 15:30:00+00'::timestamptz`,
+  `update last_dance_settings
+    set mint_opens_at = '2026-09-09 15:30:00+00'::timestamptz,
+        updated_at = now()
+    where id = 1 and mint_opens_at is null`,
 ] as const;
 
 declare global {
