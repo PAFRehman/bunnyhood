@@ -87,6 +87,25 @@ function OpenSeaMark() {
   );
 }
 
+function OpenSeaCta({ label }: { label: string }) {
+  return (
+    <a
+      className="ld-opensea ld-opensea-featured"
+      href={LAST_DANCE_OPENSEA_URL}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={`${label} — opens the official BunnyHood collection on OpenSea in a new tab`}
+    >
+      <span className="ld-opensea-badge"><OpenSeaMark /></span>
+      <span className="ld-opensea-copy">
+        <small>OFFICIAL BUNNYHOOD COLLECTION</small>
+        <strong>{label}</strong>
+      </span>
+      <b aria-hidden="true">↗</b>
+    </a>
+  );
+}
+
 function CapacityMeter({ capacity, inverse = false }: { capacity: Capacity; inverse?: boolean }) {
   const percentage = capacity.total > 0
     ? Math.min(100, Math.max(0, (capacity.claimed / capacity.total) * 100))
@@ -276,9 +295,8 @@ export function LastDanceApp() {
           <h1>GTD IS <em>GTD.</em></h1>
           <h2>Form is now closed.</h2>
           <CapacityMeter capacity={state.capacity} inverse />
-          <a href={LAST_DANCE_OPENSEA_URL} target="_blank" rel="noreferrer">
-            <OpenSeaMark /><span>VIEW BUNNYHOOD ON OPENSEA</span><b>↗</b>
-          </a>
+          <LastDanceMintCountdown target={state.settings.mintOpensAt} />
+          <OpenSeaCta label="MINT ON OPENSEA" />
         </div>
       </section>
     );
@@ -357,7 +375,7 @@ export function LastDanceApp() {
             <div className="ld-pass-actions">
               <button type="button" onClick={() => void downloadPassCard(entry.id, state.user?.xUsername ?? "gtd")} disabled={Boolean(busy)}><span>{busy === "download" ? "BUILDING PNG…" : "DOWNLOAD GTD CARD"}</span><b>↓</b></button>
               <button type="button" onClick={() => sharePassCard(entry.id)}><span>SHARE PASS ON X</span><b>↗</b></button>
-              <a className="ld-opensea" href={LAST_DANCE_OPENSEA_URL} target="_blank" rel="noreferrer"><OpenSeaMark /><span>GO TO OPENSEA MINT</span><b>↗</b></a>
+              <OpenSeaCta label="GO TO OPENSEA MINT" />
             </div>
           </div>
         </section>
