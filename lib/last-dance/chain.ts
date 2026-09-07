@@ -7,6 +7,7 @@ const PUBLIC_RPC_URL = "https://rpc.mainnet.chain.robinhood.com";
 const EXPLORER_API_URL = "https://robinhoodchain.blockscout.com/api/v2";
 const BLOCKSCOUT_API_URL = `https://api.blockscout.com/${CHAIN_ID}/api/v2`;
 const REQUEST_TIMEOUT_MS = 8_000;
+const NFT_TYPES = "ERC-721,ERC-404,ERC-1155";
 
 type ItemsReply = { items?: unknown[] };
 type AlchemyNftReply = { result?: { ownedNfts?: unknown[]; totalCount?: number | string }; error?: unknown };
@@ -40,7 +41,7 @@ async function getIndexedItems(path: string, params?: Record<string, string>) {
 }
 
 async function getBlockscoutNftCount(wallet: string) {
-  const items = await getIndexedItems(`addresses/${wallet}/nft`, { type: "ERC-721,ERC-1155" });
+  const items = await getIndexedItems(`addresses/${wallet}/nft`, { type: NFT_TYPES });
   return items.length;
 }
 
