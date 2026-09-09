@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { LAST_DANCE_OPENSEA_URL } from "@/lib/last-dance/mint";
+import { MintLaunchCountdown } from "./mint-launch-countdown";
 import { nfts } from "./site-data";
 import { DirectionIcon, SiteFooter, SiteNav } from "./site-shell";
 
@@ -33,11 +35,11 @@ export default function Home() {
         <div className="floating-ear ear-one" aria-hidden="true" />
         <div className="floating-ear ear-two" aria-hidden="true" />
         <div className="hero-copy">
-          <div className="eyebrow"><span className="live-dot" />3999 BUNNYS · ROBINHOOD CHAIN</div>
+          <div className="eyebrow"><span className="live-dot" />OFFICIAL MINT · ROBINHOOD CHAIN</div>
           <h1>BUNNY<span>HOOD</span></h1>
-          <p>A new crew is hopping onchain. Connect your X profile, complete the daily tasks, and spin for Bunny Hood rewards.</p>
+          <p>The Hood is opening. Follow the live countdown and mint only through the official BunnyHood collection on OpenSea.</p>
+          <MintLaunchCountdown />
           <div className="hero-actions">
-            <a className="button button-primary" href="/SpinTheWheel">Spin the Wheel <DirectionIcon down /></a>
             <a className="button button-quiet" href="/whitepaper">Read Whitepaper <DirectionIcon /></a>
             <a className="button button-quiet" href="#collection">Meet the Bunnys</a>
           </div>
@@ -49,7 +51,7 @@ export default function Home() {
             <img src="/assets/bunny-hood-hero.webp" alt="Bunny Hood mascot at a Robinhood event" />
             <figcaption><span>GENESIS SIGNAL</span><strong>01 / 3999</strong></figcaption>
           </figure>
-          <div className="float-card float-card-top" aria-hidden="true"><span>STATUS</span><b>EARLY</b></div>
+          <div className="float-card float-card-top" aria-hidden="true"><span>STATUS</span><b>MINT</b></div>
           <div className="float-card float-card-bottom" aria-hidden="true"><span>NETWORK</span><b>ROBINHOOD</b></div>
         </div>
         <div className="scroll-cue" aria-hidden="true"><span>SCROLL TO ENTER</span><i /></div>
@@ -107,9 +109,9 @@ export default function Home() {
       </section>
 
       <section className="access-placeholder">
-        <p>DAILY HOOD REWARDS</p>
-        <h2>Earn spins.<br />Enter the wheel.</h2>
-        <a className="button button-primary" href="/SpinTheWheel">Spin the Wheel <DirectionIcon /></a>
+        <p>OFFICIAL MINT DESTINATION</p>
+        <h2>Enter the Hood.<br />Mint on OpenSea.</h2>
+        <a className="button button-primary" href={LAST_DANCE_OPENSEA_URL} target="_blank" rel="noreferrer">OpenSea Mint <DirectionIcon /></a>
       </section>
 
       <SiteFooter home />

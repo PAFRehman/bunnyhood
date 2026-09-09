@@ -17,7 +17,7 @@ export function SiteNav({ home = false }: { home?: boolean }) {
         <a href={home ? "#roadmap" : "/#roadmap"}>Roadmap</a>
         <a href="/whitepaper">Whitepaper</a>
         <a href="/waitlist">Waitlist</a>
-        <a href="/SpinTheWheel">Spin the Wheel</a>
+        <a href={home ? "#mint" : "/#mint"}>Mint</a>
       </div>
       <a className="nav-x" href={PROJECT_X_URL} target="_blank" rel="noreferrer" aria-label="Visit Bunny Hood on X">
         X <DirectionIcon />

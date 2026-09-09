@@ -60,6 +60,10 @@ const excel = readFileSync(join(root, "lib/spin/excel.ts"), "utf8");
 const csv = readFileSync(join(root, "lib/spin/csv.ts"), "utf8");
 const storageSafety = readFileSync(join(root, "lib/spin/storage-safety.ts"), "utf8");
 const homepage = readFileSync(join(root, "app/page.tsx"), "utf8");
+const siteShell = readFileSync(join(root, "app/site-shell.tsx"), "utf8");
+const mintLaunch = readFileSync(join(root, "app/mint-launch-countdown.tsx"), "utf8");
+const checkerEntryPage = readFileSync(join(root, "app/checker/page.tsx"), "utf8");
+const whitepaperExperience = readFileSync(join(root, "app/whitepaper/whitepaper-experience.tsx"), "utf8");
 const xIntegration = readFileSync(join(root, "lib/spin/x.ts"), "utf8");
 const xStart = readFileSync(join(root, "app/api/spin/auth/x/start/route.ts"), "utf8");
 const spinShop = readFileSync(join(root, "lib/spin/shop.ts"), "utf8");
@@ -223,6 +227,8 @@ for (const route of storageGatedRoutes) {
   if (!/assertPublicStorageWritable/.test(route.source)) failures.push(`Storage safety is missing from ${route.name}.`);
 }
 if (/ONE HOOD[\s\S]{0,80}More utility\. More experiments\./.test(homepage) || !/roadmap-close"><strong>More, more and more soon\.<\/strong>/.test(homepage)) failures.push("The requested roadmap closing copy is not applied.");
+if (!/MintLaunchCountdown/.test(homepage) || !/LAST_DANCE_GTD_MINT_OPENS_AT/.test(mintLaunch) || !/LAST_DANCE_OPENSEA_URL/.test(`${homepage}\n${mintLaunch}`) || !/OFFICIAL OPENSEA MINT/.test(mintLaunch)) failures.push("The homepage mint countdown or verified OpenSea action is missing.");
+if (!/redirect\("\/#mint"\)/.test(spinPage) || !/redirect\("\/#mint"\)/.test(checkerEntryPage) || /Spin the Wheel/.test(`${homepage}\n${siteShell}\n${whitepaperExperience}`)) failures.push("Public Spin the Wheel or Checker access is not fully hidden for mint mode.");
 if (!/getAdminRecords/.test(adminData) || !/LIVE NEON RECORDS/.test(adminApp)) failures.push("The live admin data explorer is missing.");
 if (!/Lock wallet changes/.test(adminApp)) failures.push("Admin wallet-change permission is missing.");
 if (!/setWalletSubmissionsAllowed/.test(source) || !/Pause wallet submissions/.test(adminApp)) failures.push("Admin wallet-submission permission is missing.");

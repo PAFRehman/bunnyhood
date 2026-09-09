@@ -14,17 +14,17 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/whitelist/:path*",
-        destination: "/SpinTheWheel",
+        destination: "/#mint",
         permanent: true,
       },
       {
         source: "/getWL/:path*",
-        destination: "/SpinTheWheel",
+        destination: "/#mint",
         permanent: true,
       },
       {
         source: "/spin",
-        destination: "/SpinTheWheel",
+        destination: "/#mint",
         permanent: false,
       },
       {

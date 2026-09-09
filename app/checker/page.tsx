@@ -1,5 +1,5 @@
-import { CheckerApp } from "../Checker/checker-app";
+import { redirect } from "next/navigation";
 
 export default function CheckerPage() {
-  return <CheckerApp />;
+  redirect("/#mint");
 }

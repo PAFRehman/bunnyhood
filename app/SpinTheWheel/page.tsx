@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
-import { SiteFooter, SiteNav } from "../site-shell";
+import { redirect } from "next/navigation";
 import { spinSocialImageAlt, spinSocialImageSize } from "./social-card";
-import { SpinWheelApp } from "./spin-wheel-app";
 
 const SITE_URL = "https://www.bunnyhood.xyz";
 const REFERRAL_CODE = /^[a-z0-9_]{3,24}$/;
@@ -62,11 +61,5 @@ export async function generateMetadata({ searchParams }: SpinPageProps): Promise
 }
 
 export default function SpinTheWheelPage() {
-  return (
-    <main className="spin-page">
-      <SiteNav />
-      <SpinWheelApp />
-      <SiteFooter />
-    </main>
-  );
+  redirect("/#mint");
 }

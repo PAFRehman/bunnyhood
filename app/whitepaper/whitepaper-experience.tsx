@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useRef, type CSSProperties } from "react";
+import { LAST_DANCE_OPENSEA_URL } from "@/lib/last-dance/mint";
 import { DirectionIcon } from "../site-shell";
 import styles from "./whitepaper.module.css";
 
@@ -253,7 +254,7 @@ export function WhitepaperExperience() {
         <h2 data-reveal>NOT A STATIC IMAGE.<br /><em>A PERSISTENT AI-NATIVE ENTITY.</em></h2>
         <p className={styles.visionCopy} data-reveal>The MVP proves that an NFT can own an agent identity. The final product aims to prove something larger: an NFT can become an entity users can own, interact with, develop and eventually give controlled economic capabilities on Robinhood Chain.</p>
         <div className={styles.visionActions} data-reveal>
-          <a href="/SpinTheWheel">Enter the Hood <DirectionIcon /></a>
+          <a href={LAST_DANCE_OPENSEA_URL} target="_blank" rel="noreferrer">Mint on OpenSea <DirectionIcon /></a>
           <a href="https://x.com/BunnysHood" target="_blank" rel="noreferrer">Follow the build <DirectionIcon /></a>
         </div>
         <div className={styles.visionMark} aria-hidden="true">BH</div>
